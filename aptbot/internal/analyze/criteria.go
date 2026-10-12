@@ -277,7 +277,11 @@ func (e *Evaluator) Evaluate(ctx context.Context, l *listing.Listing) {
 		checks = append(checks, checkKitchen(text))
 	}
 	if cr.MinDurationMonths > 0 {
-		checks = append(checks, checkDuration(text, cr.MinDurationMonths, now))
+		minMonths := cr.MinDurationMonths
+		if l.MaxLeaseMonths > 0 && l.MaxLeaseMonths < minMonths {
+			minMonths = l.MaxLeaseMonths
+		}
+		checks = append(checks, checkDuration(text, minMonths, now))
 	}
 	if cr.RequireAnmeldung {
 		checks = append(checks, checkAnmeldung(text))

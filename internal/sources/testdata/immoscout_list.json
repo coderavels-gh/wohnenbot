@@ -1,7 +1,0 @@
-{"totalResults":2,"resultListItems":[
- {"type":"EXPOSE_RESULT","item":{"id":"161234567","title":"Helle 2,5-Zimmer-Wohnung mit Südbalkon und EBK","address":{"line":"Hoheluftchaussee 12, 20253 Hamburg, Hoheluft-Ost","lat":53.5801,"lon":9.9744},
-   "attributes":[{"label":"","value":"1.480 €"},{"label":"","value":"62 m²"},{"label":"","value":"2,5 Zi."}]}},
- {"type":"ADVERTISEMENT","item":{}},
- {"type":"EXPOSE_RESULT","item":{"id":"161999999","title":"Möblierte Wohnung auf Zeit","address":{"line":"20357 Hamburg, Eimsbüttel"},
-   "attributes":[{"value":"1.900 €"},{"value":"48 m²"},{"value":"2 Zi."}]}}
-]}

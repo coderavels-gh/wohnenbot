@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,6 +98,33 @@ func TestCityWohnenDetail(t *testing.T) {
 		if r := result(t, l, k); r != v {
 			c, _ := l.Check(k)
 			t.Errorf("%s: got %v want %v (%s)", k, r, v, c.Detail)
+		}
+	}
+}
+
+func TestCityWohnenTwelveMonthLease(t *testing.T) {
+	page := read(t, "citywohnen_detail.html")
+	const window = "ab <b>01.01.2027</b> bis <b>31.03.2027</b>"
+	pageURL := "https://www.city-wohnen.de/hamburg/50906-moeblierte-wohnung-hamburg-eimsbuettel-emilienstrasse"
+	cases := []struct {
+		name   string
+		avail  string
+		minDur int
+		want   listing.Result
+	}{
+		{"full 12 months", "ab <b>01.11.2026</b> bis <b>31.10.2027</b>", 12, listing.Pass},
+		{"no end date", "ab <b>01.11.2026</b>", 12, listing.Pass},
+		{"capped at 12 when minimum is higher", "ab <b>01.11.2026</b> bis <b>31.10.2027</b>", 18, listing.Pass},
+		{"shorter than 12 months", "ab <b>01.11.2026</b> bis <b>30.04.2027</b>", 12, listing.Fail},
+	}
+	for _, c := range cases {
+		l := ParseCityWohnenDetail(strings.Replace(page, window, c.avail, 1), pageURL)
+		ev := evaluator()
+		ev.Criteria.MinDurationMonths = c.minDur
+		ev.Evaluate(context.Background(), l)
+		if r := result(t, l, listing.CritDuration); r != c.want {
+			d, _ := l.Check(listing.CritDuration)
+			t.Errorf("%s: got %v want %v (%s)", c.name, r, c.want, d.Detail)
 		}
 	}
 }

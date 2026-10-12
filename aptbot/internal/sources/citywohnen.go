@@ -21,6 +21,8 @@ type CityWohnen struct {
 
 func (c *CityWohnen) Name() string { return "City-Wohnen" }
 
+const cityWohnenMaxLeaseMonths = 12
+
 var reCWDetail = regexp.MustCompile(`^https://www\.city-wohnen\.de/(?:en/)?hamburg/(\d+)-[a-z0-9-]+/?$`)
 
 func (c *CityWohnen) Fetch(ctx context.Context, seen func(string) bool) ([]*listing.Listing, error) {
@@ -97,5 +99,9 @@ func ParseCityWohnenDetail(page, pageURL string) *listing.Listing {
 	}
 	furnishedAgencyDefaults(l, "City-Wohnen")
 	l.SetDefault(listing.CritAnmeldung, listing.Pass, "City-Wohnen states Anmeldung is possible for all its flats")
+	// City-Wohnen rents for up to 12 months: a flat that allows the full 12
+	// passes, and one with no end date is assumed to allow it.
+	l.MaxLeaseMonths = cityWohnenMaxLeaseMonths
+	l.SetDefault(listing.CritDuration, listing.Pass, "City-Wohnen rents for up to 12 months; no end date stated")
 	return l
 }

@@ -1,4 +1,2 @@
-config.json
-secrets/
-data/
-bin/
+.claude/settings.local.json
+.DS_Store

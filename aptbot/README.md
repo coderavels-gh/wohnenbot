@@ -23,7 +23,7 @@ Every cell in the sheet shows the text the decision was based on, for example `�
 | Warm rent ≤ 1600 € | Uses Warmmiete, Gesamtmiete or Pauschalmiete. If none is given, it adds up Kaltmiete + Nebenkosten + Heizkosten. |
 | ≥ 2 rooms, ≥ 50 m² | Parsed from the listing. |
 | Balcony, washing machine, kitchen | German keywords plus negations such as "kein Balkon" or "ohne EBK". A washing-machine hook-up (Waschmaschinenanschluss) counts as a pass; turn that off with `washing_machine_connection_ok`. A shared laundry room counts as ?. |
-| Duration ≥ 12 months or unlimited | Looks for "unbefristet", "Maximale Mietzeit …", "befristet bis …" and date ranges. A normal ImmoScout lease with no time limit mentioned counts as unlimited. |
+| Duration ≥ 12 months or unlimited | Looks for "unbefristet", "Maximale Mietzeit …", "befristet bis …" and date ranges. A normal ImmoScout lease with no time limit mentioned counts as unlimited. City-Wohnen rents for at most 12 months, so for City-Wohnen the minimum is capped at 12 months, and a flat with no end date counts as a pass. |
 | Anmeldung possible | Explicit wording in the listing. A normal open-ended lease counts as a pass, and City-Wohnen states that every one of its flats allows Anmeldung. |
 | ≥ 2 of Bus / U-Bahn / S-Bahn nearby | If the street address is known, the bot geocodes it and searches OpenStreetMap for stops: bus within 400 m, U/S-Bahn within 900 m. Otherwise it reads the listing's own location text (HomeCompany's "Lage: U2, U3, Bus 4 …" line, for example). |
 
@@ -54,6 +54,7 @@ Because these filters run on ImmoScout's side, you get fewer and better results.
 
 ### 5. Test, then install
 ```bash
+cd aptbot
 cp config.example.json config.json   # then fill it in
 export CALLMEBOT_KEY_person1=… CALLMEBOT_KEY_2=…
 
@@ -73,12 +74,12 @@ On the **first real run**, the bot records every listing that is currently onlin
 |---|---|---|
 | **Mac LaunchAgent** (`deploy/install-mac.sh`) | Best for ImmoScout, because requests come from your home IP. | Pauses while the Mac sleeps and catches up when it wakes. To keep it awake while plugged in: `sudo pmset -c sleep 0` (display can still sleep). |
 | **Docker on any always-on machine** (`docker compose up -d`) | 24/7 on an old laptop or Raspberry Pi. | Loops on its own; no cron needed. |
-| **GitHub Actions** (`.github/workflows/aptbot.yml`, private repo) | 24/7 and free. A private repo gets 2,000 minutes per month and 48 runs a day uses most of that, so set the schedule to hourly if you go over. | Runs on datacenter IPs, which ImmoScout may block. The agency sites are fine. |
+| **GitHub Actions** (`.github/workflows/aptbot.yml` at the repo root, private repo) | 24/7 and free. A private repo gets 2,000 minutes per month and 48 runs a day uses most of that, so set the schedule to hourly if you go over. | Runs on datacenter IPs, which ImmoScout may block. The agency sites are fine. |
 
 All three keep their state in the sheet, so you can run more than one, for example the Mac plus GitHub Actions. Listings are still never alerted twice.
 
 ## Known limits / next steps
 - **Suchen+ early access.** The mobile API is used without logging in, so listings that are visible only to Suchen+ members during the first hours may show up later than in the app. A good way to cover that gap is to turn on ImmoScout's own instant push for the same saved search in the ImmoScout app.
-- **HomeCompany and City-Wohnen only rent furnished flats for limited periods**, often 3–12 months. With your 12-month minimum most of their listings will be rejected on duration. The bot still flags the ones that fit.
+- **HomeCompany only rents furnished flats for limited periods**, often 3–12 months. With your 12-month minimum most of its listings will be rejected on duration. City-Wohnen flats pass if they allow the full 12 months.
 - **Site changes.** If a site changes its layout, the bot logs that source as `FAILED` or as `0 listings on index`. Run `-dry-run -only <source>` to see what it extracts.
 - **Landlord messaging** (next phase): this will reuse the same listing data and your Status column, for example "send the intro when Status = Interested".

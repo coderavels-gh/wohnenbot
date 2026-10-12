@@ -77,6 +77,10 @@ type Listing struct {
 	// What we know about a criterion from the site itself when the listing
 	// text is silent (e.g. City-Wohnen guarantees Anmeldung for every flat).
 	Defaults map[string]Default
+	// Longest lease the site offers at all (0 = no limit). The duration
+	// criterion is capped at this, so a site that rents for at most 12 months
+	// isn't rejected by a longer minimum.
+	MaxLeaseMonths int
 
 	Checks    []Check
 	Verdict   Verdict
