@@ -97,7 +97,7 @@ func ParseCityWohnenDetail(page, pageURL string) *listing.Listing {
 	if m := reCWAvailable.FindStringSubmatch(text); m != nil {
 		l.AvailableFrom = m[1]
 	}
-	l.FlexibleStart = true // "ab X bis Y" is a window; any start inside it works
+	l.StrictStart = true
 	furnishedAgencyDefaults(l, "City-Wohnen")
 	l.SetDefault(listing.CritAnmeldung, listing.Pass, "City-Wohnen states Anmeldung is possible for all its flats")
 	// City-Wohnen rents for up to 12 months: a flat that allows the full 12

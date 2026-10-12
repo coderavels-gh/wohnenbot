@@ -270,8 +270,8 @@ func checkMoveIn(l *listing.Listing, from, to, now time.Time) listing.Check {
 		c.Result, c.Detail = listing.Fail, "available from "+av+", after "+to.Format("02.01.2006")
 	case !date.Before(from):
 		c.Result, c.Detail = listing.Pass, "available from "+av
-	case l.FlexibleStart:
-		c.Result, c.Detail = listing.Pass, "rental window opens "+av+"; start in "+window+" possible"
+	case l.StrictStart:
+		c.Result, c.Detail = listing.Fail, "available from "+av+", before "+from.Format("02.01.2006")
 	default:
 		c.Detail = "available from " + av + " (earlier) – ask if a start in " + window + " works"
 	}
@@ -282,7 +282,7 @@ func checkMoveIn(l *listing.Listing, from, to, now time.Time) listing.Check {
 
 // RulesVersion is part of the criteria fingerprint. Bump it when a change to
 // the evaluation code should re-check listings rejected under the old rules.
-const RulesVersion = 2
+const RulesVersion = 3
 
 // Fingerprint identifies a set of criteria plus the rules applying them.
 func Fingerprint(cr config.Criteria) string {

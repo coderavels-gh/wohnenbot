@@ -72,12 +72,13 @@ type Listing struct {
 	Lat, Lon       float64 // if the source provides coordinates
 
 	AvailableFrom string // "01.12.2026", "sofort", "nach Vereinbarung" or ""
-	// FlexibleStart: AvailableFrom opens a rental window and any later start
-	// date inside it works (City-Wohnen's "ab 12.10.2026 bis 31.12.2027").
-	FlexibleStart bool
-	Furnished     bool   // selects the furnished or unfurnished rent limit
-	Text          string // main detail text used for keyword analysis
-	TransitText   string // dedicated "Lage"/transport text, if the source has one
+	// StrictStart: a flat available before the move-in window is rejected
+	// rather than sent to review. City-Wohnen flats free from October get
+	// rented long before a December start.
+	StrictStart bool
+	Furnished   bool   // selects the furnished or unfurnished rent limit
+	Text        string // main detail text used for keyword analysis
+	TransitText string // dedicated "Lage"/transport text, if the source has one
 
 	// What we know about a criterion from the site itself when the listing
 	// text is silent (e.g. City-Wohnen guarantees Anmeldung for every flat).

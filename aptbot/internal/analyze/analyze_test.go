@@ -104,23 +104,23 @@ func TestMoveIn(t *testing.T) {
 	from := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
 	cases := []struct {
-		avail    string
-		flexible bool
-		want     listing.Result
+		avail  string
+		strict bool
+		want   listing.Result
 	}{
 		{"01.12.2026", false, listing.Pass},
 		{"31.12.2026", false, listing.Pass},
 		{"01.01.2027", false, listing.Fail},
 		{"15.10.2026", false, listing.Unknown}, // earlier: ask the landlord
-		{"15.10.2026", true, listing.Pass},     // City-Wohnen style window
+		{"15.10.2026", true, listing.Fail},     // City-Wohnen: earlier start is a rejection
 		{"sofort", false, listing.Unknown},
 		{"nach Vereinbarung", false, listing.Unknown},
 		{"", false, listing.Unknown},
 	}
 	for _, c := range cases {
-		l := &listing.Listing{AvailableFrom: c.avail, FlexibleStart: c.flexible}
+		l := &listing.Listing{AvailableFrom: c.avail, StrictStart: c.strict}
 		if got := checkMoveIn(l, from, to, now); got.Result != c.want {
-			t.Errorf("%q flexible=%v → %v want %v (%s)", c.avail, c.flexible, got.Result, c.want, got.Detail)
+			t.Errorf("%q strict=%v → %v want %v (%s)", c.avail, c.strict, got.Result, c.want, got.Detail)
 		}
 	}
 }
