@@ -39,7 +39,9 @@ Every cell in the sheet shows the text the decision was based on, for example `�
 4. Share the sheet with the service account's email address (`…@….iam.gserviceaccount.com`) as an **Editor**.
 5. Copy the ID from the sheet's URL (`docs.google.com/spreadsheets/d/<THIS PART>/edit`) into `config.json`.
 
-The bot creates two tabs itself. **Listings** has a **Status** dropdown (New / Interested / Contacted / Viewing / Applied / Not interested / Gone) and a free **Notes** column. **Seen** is the bot's memory of which listings it has already processed. The bot only ever appends rows, so your edits are never overwritten. In the Google Sheets app on your iPhone, adding a filter view on Status makes it easy to triage.
+The bot creates two tabs itself. **Listings** has a **Status** dropdown (New / Interested / Contacted / Viewing / Applied / Not interested / Gone) and a free **Notes** column. **Seen** is the bot's memory of which listings it has already processed. The bot only ever appends rows, so your edits are never overwritten. Each listing's **Title** links to the listing itself.
+
+You can restyle, reorder or add columns in **Listings** freely. The bot reads the header row and writes each value under the column with that name, leaves every other column untouched (for example a formula column such as €/m²), and fills the existing empty rows, so your formatting, banding and conditional colours carry over. If you rename or delete one of its columns, the bot logs which column it can't find. In the Google Sheets app on your iPhone, adding a filter view on Status makes it easy to triage.
 
 ### 2. WhatsApp via CallMeBot (each of you does this once)
 1. Open <https://www.callmebot.com/blog/free-api-whatsapp-messages/> and save the WhatsApp number shown there as a contact. CallMeBot changes it occasionally, so take it from the page rather than an old guide.

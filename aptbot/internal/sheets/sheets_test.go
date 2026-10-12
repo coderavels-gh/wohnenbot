@@ -55,7 +55,7 @@ func TestSheetsFlow(t *testing.T) {
 			var v map[string]any
 			json.Unmarshal(body, &v)
 			appended = v["values"].([]any)
-			w.Write([]byte(`{}`))
+			w.Write([]byte(`{"updates":{"updatedRange":"'Listings'!A4:U4"}}`))
 		case r.Method == "GET" && strings.Contains(r.URL.Path, "/values/"):
 			w.Write([]byte(`{"values":[["Key"],["a:1"],["b:2"]]}`))
 		default:
@@ -80,8 +80,8 @@ func TestSheetsFlow(t *testing.T) {
 	if err := c.EnsureTab(ctx, "Listings", []string{"A", "B"}, 1, nil); err != nil { // exists now: no-op
 		t.Fatal(err)
 	}
-	if err := c.Append(ctx, "Listings", [][]any{{"x", 1}}); err != nil || len(appended) != 1 {
-		t.Fatalf("append err=%v appended=%v", err, appended)
+	if first, err := c.AppendAt(ctx, "Listings", [][]any{{"x", 1}}); err != nil || len(appended) != 1 || first != 4 {
+		t.Fatalf("append err=%v first=%d appended=%v", err, first, appended)
 	}
 	col, err := c.Column(ctx, "Seen", "A")
 	if err != nil || len(col) != 3 {

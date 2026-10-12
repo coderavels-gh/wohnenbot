@@ -29,10 +29,13 @@ import (
 	"aptbot/internal/web"
 )
 
+// listingsHeader is used only when the bot creates the Listings tab. After
+// that, rows are written by column name (see orderRow), so the columns can be
+// reordered, restyled, or extended with your own columns in the sheet.
 var listingsHeader = []string{
-	"First seen", "Status", "Verdict", "Source", "Title", "Warm rent €", "m²", "Rooms",
-	"Available", "Location", "Transit", "Balcony", "Washer", "Kitchen", "Duration",
-	"Anmeldung", "Needs checking", "Link", "Notes", "Key",
+	"Status", "Verdict", "Title", "Location", "Warm rent €", "m²", "Rooms",
+	"Available", "Duration", "Transit", "Balcony", "Washer", "Kitchen", "Anmeldung",
+	"Needs checking", "Notes", "Source", "First seen", "Key",
 }
 
 var statusOptions = []string{"New", "Interested", "Contacted", "Viewing", "Applied", "Not interested", "Gone"}
@@ -141,7 +144,7 @@ func (a *app) run(ctx context.Context) error {
 		return fmt.Errorf("load state: %w", err)
 	}
 	if a.sheet != nil && !a.dryRun {
-		if err := a.sheet.EnsureTab(ctx, a.cfg.Sheets.ListingsTab, listingsHeader, 1, statusOptions); err != nil {
+		if err := a.sheet.EnsureTab(ctx, a.cfg.Sheets.ListingsTab, listingsHeader, 0, statusOptions); err != nil {
 			return fmt.Errorf("prepare sheet: %w", err)
 		}
 	}
@@ -166,12 +169,23 @@ func (a *app) run(ctx context.Context) error {
 	sort.SliceStable(all, func(i, j int) bool { return rank(all[i].Verdict) < rank(all[j].Verdict) })
 
 	counts := map[listing.Verdict]int{}
+	var header []string
+	if a.sheet != nil && !a.dryRun {
+		h, err := a.sheet.Header(ctx, a.cfg.Sheets.ListingsTab)
+		if err != nil {
+			return fmt.Errorf("read tracker header: %w", err)
+		}
+		header = h
+		checkHeader(header)
+	}
 	var rows [][]any
+	var links []sheets.Link // Title cells, linked to the listing
 	var recs []store.Record
 	for _, l := range all {
 		counts[l.Verdict]++
 		if l.Verdict != listing.Reject {
-			rows = append(rows, sheetRow(l))
+			rows = append(rows, orderRow(header, sheetRow(l)))
+			links = append(links, sheets.Link{Text: l.Title, URL: l.URL})
 		}
 		recs = append(recs, store.Record{Key: l.Key(), Source: l.Source, Verdict: string(l.Verdict),
 			URL: l.URL, FirstSeen: now.Format("2006-01-02 15:04"), Title: l.Title, Criteria: a.criteria})
@@ -186,8 +200,14 @@ func (a *app) run(ctx context.Context) error {
 		return nil
 	}
 	if a.sheet != nil {
-		if err := a.sheet.Append(ctx, a.cfg.Sheets.ListingsTab, rows); err != nil {
+		first, err := a.sheet.AppendAt(ctx, a.cfg.Sheets.ListingsTab, rows)
+		if err != nil {
 			return fmt.Errorf("write tracker: %w", err) // state not saved → retried next run
+		}
+		if col := columnIndex(header, "Title"); first > 0 && col >= 0 {
+			if err := a.sheet.SetLinks(ctx, a.cfg.Sheets.ListingsTab, col, first, links); err != nil {
+				log.Printf("tracker: linking titles: %v", err) // rows are written; only the links are missing
+			}
 		}
 	}
 	if err := a.store.Add(ctx, recs); err != nil {
@@ -318,25 +338,69 @@ func availableCell(l *listing.Listing) string {
 
 func numCell(v float64) any {
 	if v == 0 {
-		return ""
+		return nil
 	}
 	return v
 }
 
-func sheetRow(l *listing.Listing) []any {
+// sheetRow returns the bot's values keyed by Listings column name.
+func sheetRow(l *listing.Listing) map[string]any {
 	loc := l.District
 	if l.Address != "" && !strings.Contains(l.Address, loc) {
 		loc = strings.TrimSpace(l.Address + " · " + l.District)
 	} else if loc == "" {
 		loc = l.Address
 	}
-	link := l.URL // plain URL: Sheets turns it into a link; avoids locale-dependent formula separators
-	return []any{
-		l.FirstSeen.Format("2006-01-02 15:04"), "New", string(l.Verdict), l.Source, l.Title,
-		numCell(l.WarmRent), numCell(l.SizeM2), numCell(l.Rooms), availableCell(l), loc,
-		cell(l, listing.CritTransit), cell(l, listing.CritBalcony), cell(l, listing.CritWasher),
-		cell(l, listing.CritKitchen), cell(l, listing.CritDuration), cell(l, listing.CritAnmeldung),
-		unknowns(l), link, "", l.Key(),
+	return map[string]any{
+		"Status": "New", "Verdict": string(l.Verdict), "Title": l.Title, "Location": loc,
+		"Warm rent €": numCell(l.WarmRent), "m²": numCell(l.SizeM2), "Rooms": numCell(l.Rooms),
+		"Available": availableCell(l), "Duration": cell(l, listing.CritDuration),
+		"Transit": cell(l, listing.CritTransit), "Balcony": cell(l, listing.CritBalcony),
+		"Washer": cell(l, listing.CritWasher), "Kitchen": cell(l, listing.CritKitchen),
+		"Anmeldung": cell(l, listing.CritAnmeldung), "Needs checking": unknowns(l),
+		"Source": l.Source, "First seen": l.FirstSeen.Format("2006-01-02 15:04"), "Key": l.Key(),
+	}
+}
+
+// orderRow lays values out under the sheet's own header. Columns the bot
+// doesn't fill (Notes, formula columns like €/m², your own additions) get
+// nil, which the Sheets API leaves untouched.
+func orderRow(header []string, vals map[string]any) []any {
+	if header == nil {
+		header = listingsHeader
+	}
+	row := make([]any, len(header))
+	for i, h := range header {
+		if v, ok := vals[strings.TrimSpace(h)]; ok && v != "" {
+			row[i] = v
+		}
+	}
+	return row
+}
+
+func columnIndex(header []string, name string) int {
+	if header == nil {
+		header = listingsHeader
+	}
+	for i, h := range header {
+		if strings.TrimSpace(h) == name {
+			return i
+		}
+	}
+	return -1
+}
+
+// checkHeader logs bot columns missing from the sheet (renamed or deleted),
+// whose values would otherwise be dropped silently.
+func checkHeader(header []string) {
+	have := map[string]bool{}
+	for _, h := range header {
+		have[strings.TrimSpace(h)] = true
+	}
+	for _, h := range listingsHeader {
+		if h != "Notes" && !have[h] {
+			log.Printf("tracker: no %q column in the Listings header; its values are not written", h)
+		}
 	}
 }
 

@@ -19,6 +19,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -215,14 +217,104 @@ func (c *Client) EnsureTab(ctx context.Context, tab string, header []string, sta
 	return c.call(ctx, "POST", ":batchUpdate", map[string]any{"requests": reqs}, nil)
 }
 
-// Append adds rows after the last row of the tab (USER_ENTERED, so formulas
-// like =HYPERLINK() work).
+// Append writes rows below the last filled row of the tab (USER_ENTERED, so
+// dates and numbers are parsed). OVERWRITE fills the existing empty rows, which
+// keeps their formatting, banding and conditional rules; nil cells are left
+// untouched (formula columns keep working).
 func (c *Client) Append(ctx context.Context, tab string, rows [][]any) error {
+	_, err := c.AppendAt(ctx, tab, rows)
+	return err
+}
+
+var reRangeRow = regexp.MustCompile(`![A-Z]+(\d+)`)
+
+// AppendAt is Append that also returns the 1-based row number of the first
+// row written (0 if nothing was written).
+func (c *Client) AppendAt(ctx context.Context, tab string, rows [][]any) (int, error) {
 	if len(rows) == 0 {
+		return 0, nil
+	}
+	var resp struct {
+		Updates struct {
+			UpdatedRange string `json:"updatedRange"`
+		} `json:"updates"`
+	}
+	err := c.call(ctx, "POST", "/values/"+a1(tab, "A1")+":append?valueInputOption=USER_ENTERED&insertDataOption=OVERWRITE",
+		map[string]any{"values": rows}, &resp)
+	if err != nil {
+		return 0, err
+	}
+	m := reRangeRow.FindStringSubmatch(resp.Updates.UpdatedRange)
+	if m == nil {
+		return 0, fmt.Errorf("append: unexpected updatedRange %q", resp.Updates.UpdatedRange)
+	}
+	row, _ := strconv.Atoi(m[1])
+	return row, nil
+}
+
+func (c *Client) sheetID(ctx context.Context, tab string) (int, error) {
+	var meta struct {
+		Sheets []struct {
+			Properties struct {
+				SheetID int    `json:"sheetId"`
+				Title   string `json:"title"`
+			} `json:"properties"`
+		} `json:"sheets"`
+	}
+	if err := c.call(ctx, "GET", "?fields=sheets.properties(sheetId,title)", nil, &meta); err != nil {
+		return 0, err
+	}
+	for _, s := range meta.Sheets {
+		if s.Properties.Title == tab {
+			return s.Properties.SheetID, nil
+		}
+	}
+	return 0, fmt.Errorf("no tab %q", tab)
+}
+
+// Link is a cell whose whole text links to URL.
+type Link struct {
+	Text, URL string
+}
+
+// SetLinks writes links into one column (0-based col), starting at the 1-based
+// row firstRow, one per row. It sets only the value and the link, so the
+// cell's formatting (bold, wrap, colours) is kept. A Link with no URL is
+// skipped.
+func (c *Client) SetLinks(ctx context.Context, tab string, col, firstRow int, links []Link) error {
+	id, err := c.sheetID(ctx, tab)
+	if err != nil {
+		return err
+	}
+	var reqs []any
+	for i, l := range links {
+		if l.URL == "" || l.Text == "" {
+			continue
+		}
+		reqs = append(reqs, map[string]any{"updateCells": map[string]any{
+			"start": map[string]any{"sheetId": id, "rowIndex": firstRow - 1 + i, "columnIndex": col},
+			"rows": []any{map[string]any{"values": []any{map[string]any{
+				"userEnteredValue": map[string]any{"stringValue": l.Text},
+				"textFormatRuns":   []any{map[string]any{"startIndex": 0, "format": map[string]any{"link": map[string]any{"uri": l.URL}}}},
+			}}}},
+			"fields": "userEnteredValue,textFormatRuns",
+		}})
+	}
+	if len(reqs) == 0 {
 		return nil
 	}
-	return c.call(ctx, "POST", "/values/"+a1(tab, "A1")+":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
-		map[string]any{"values": rows}, nil)
+	return c.call(ctx, "POST", ":batchUpdate", map[string]any{"requests": reqs}, nil)
+}
+
+// DeleteColumn removes one column (0-based) from a tab.
+func (c *Client) DeleteColumn(ctx context.Context, tab string, col int) error {
+	id, err := c.sheetID(ctx, tab)
+	if err != nil {
+		return err
+	}
+	return c.call(ctx, "POST", ":batchUpdate", map[string]any{"requests": []any{map[string]any{"deleteDimension": map[string]any{
+		"range": map[string]any{"sheetId": id, "dimension": "COLUMNS", "startIndex": col, "endIndex": col + 1},
+	}}}}, nil)
 }
 
 // Column returns all values of one column (e.g. "A"), header included.
@@ -258,4 +350,14 @@ func (c *Client) Rows(ctx context.Context, tab, rng string) ([][]string, error) 
 		}
 	}
 	return out, nil
+}
+
+// Header returns the first row of a tab as displayed (formula headers give
+// their result).
+func (c *Client) Header(ctx context.Context, tab string) ([]string, error) {
+	rows, err := c.Rows(ctx, tab, "1:1")
+	if err != nil || len(rows) == 0 {
+		return nil, err
+	}
+	return rows[0], nil
 }

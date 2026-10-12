@@ -20,7 +20,26 @@ func TestAlertAndRow(t *testing.T) {
 			t.Errorf("alert missing %q", want)
 		}
 	}
-	if row := sheetRow(l); len(row) != len(listingsHeader) {
-		t.Fatalf("row has %d cols, header %d", len(row), len(listingsHeader))
+	vals := sheetRow(l)
+	for _, h := range listingsHeader {
+		if _, ok := vals[h]; !ok && h != "Notes" {
+			t.Errorf("no value for column %q", h)
+		}
+	}
+}
+
+func TestOrderRowFollowsSheetHeader(t *testing.T) {
+	// The tracker as formatted in the sheet: reordered, with a formula column.
+	header := []string{"Status", "Verdict", "Title", "Location", "Warm rent €", "m²", "€/m²", "Rooms", "Notes", "Key", "My own column"}
+	row := orderRow(header, map[string]any{"Status": "New", "Verdict": "REVIEW", "Title": "T", "Location": "",
+		"Warm rent €": 1800.0, "m²": 75.0, "Rooms": 3.0, "Key": "City-Wohnen:1"})
+	want := []any{"New", "REVIEW", "T", nil, 1800.0, 75.0, nil, 3.0, nil, "City-Wohnen:1", nil}
+	if len(row) != len(want) {
+		t.Fatalf("len %d want %d", len(row), len(want))
+	}
+	for i := range want {
+		if row[i] != want[i] {
+			t.Errorf("%s: %v want %v", header[i], row[i], want[i])
+		}
 	}
 }
