@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 )
 
 type Config struct {
@@ -24,10 +25,24 @@ type Config struct {
 }
 
 type Criteria struct {
-	MaxWarmRent       float64 `json:"max_warm_rent"`
+	// Rent limit for listings not covered by warm_rent below.
+	MaxWarmRent float64 `json:"max_warm_rent"`
+	// Separate limits for furnished and unfurnished flats.
+	WarmRent struct {
+		Furnished   RentLimit `json:"furnished"`
+		Unfurnished RentLimit `json:"unfurnished"`
+	} `json:"warm_rent"`
+
 	MinRooms          float64 `json:"min_rooms"`
 	MinSizeM2         float64 `json:"min_size_m2"`
 	MinDurationMonths int     `json:"min_duration_months"`
+
+	// Move-in window, "YYYY-MM-DD". A listing must be available to move in
+	// on some day between the two (inclusive). Empty = no move-in check.
+	MoveInFrom string    `json:"move_in_from"`
+	MoveInTo   string    `json:"move_in_to"`
+	MoveFrom   time.Time `json:"-"`
+	MoveTo     time.Time `json:"-"`
 
 	RequireBalcony   bool `json:"require_balcony"`
 	RequireWasher    bool `json:"require_washing_machine"`
@@ -40,6 +55,28 @@ type Criteria struct {
 	MinTransitModes int `json:"min_transit_modes"` // distinct modes among Bus / U-Bahn / S-Bahn
 	BusRadiusM      int `json:"bus_radius_m"`
 	RailRadiusM     int `json:"rail_radius_m"`
+}
+
+// RentLimit: up to Max passes; above Max but up to ReviewUpTo is REVIEW
+// ("over budget, but worth a look"); above that is rejected.
+type RentLimit struct {
+	Max        float64 `json:"max"`
+	ReviewUpTo float64 `json:"review_up_to"`
+}
+
+// RentLimit returns the limit for a furnished or unfurnished flat.
+func (cr Criteria) RentLimit(furnished bool) RentLimit {
+	r := cr.WarmRent.Unfurnished
+	if furnished {
+		r = cr.WarmRent.Furnished
+	}
+	if r.Max == 0 {
+		r = RentLimit{Max: cr.MaxWarmRent}
+	}
+	if r.ReviewUpTo < r.Max {
+		r.ReviewUpTo = r.Max
+	}
+	return r
 }
 
 type Sources struct {
@@ -118,6 +155,9 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	c.applyDefaults()
+	if err := c.Criteria.parseMoveIn(); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
 	return c, nil
 }
 
@@ -165,4 +205,24 @@ func (c *Config) applyDefaults() {
 	if c.Notify.Ntfy != nil && c.Notify.Ntfy.Server == "" {
 		c.Notify.Ntfy.Server = "https://ntfy.sh"
 	}
+}
+
+func (cr *Criteria) parseMoveIn() error {
+	if cr.MoveInFrom == "" && cr.MoveInTo == "" {
+		return nil
+	}
+	if cr.MoveInFrom == "" || cr.MoveInTo == "" {
+		return fmt.Errorf("criteria: set both move_in_from and move_in_to")
+	}
+	var err error
+	if cr.MoveFrom, err = time.Parse("2006-01-02", cr.MoveInFrom); err != nil {
+		return fmt.Errorf("criteria.move_in_from: %w", err)
+	}
+	if cr.MoveTo, err = time.Parse("2006-01-02", cr.MoveInTo); err != nil {
+		return fmt.Errorf("criteria.move_in_to: %w", err)
+	}
+	if cr.MoveTo.Before(cr.MoveFrom) {
+		return fmt.Errorf("criteria: move_in_to is before move_in_from")
+	}
+	return nil
 }

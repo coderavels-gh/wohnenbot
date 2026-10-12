@@ -2,6 +2,9 @@ package analyze
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -176,7 +179,9 @@ func unitToMonths(n float64, unit string) float64 {
 	return n
 }
 
-func checkDuration(text string, minMonths int, now time.Time) listing.Check {
+// checkDuration measures date-based limits from leaseStart (move-in day, or today).
+func checkDuration(text string, minMonths int, leaseStart time.Time) listing.Check {
+	now := leaseStart
 	c := listing.Check{Name: listing.CritDuration}
 	min := float64(minMonths)
 	verdict := func(months float64, ev string) listing.Check {
@@ -219,7 +224,72 @@ func checkDuration(text string, minMonths int, now time.Time) listing.Check {
 	return c
 }
 
+// ---- Rent ------------------------------------------------------------------
+
+func checkRent(l *listing.Listing, lim config.RentLimit) listing.Check {
+	kind := "unfurnished"
+	if l.Furnished {
+		kind = "furnished"
+	}
+	c := numCheck(listing.CritRent, l.WarmRent, func(v float64) bool { return v <= lim.Max }, " €", l.RentNote)
+	if c.Result == listing.Fail && l.WarmRent <= lim.ReviewUpTo {
+		c.Result = listing.Unknown
+		c.Detail = fmt.Sprintf("%g € is over the %g € %s limit, within the %g € stretch", l.WarmRent, lim.Max, kind, lim.ReviewUpTo)
+	} else if c.Result == listing.Fail {
+		c.Detail += fmt.Sprintf(" > %g € %s limit", lim.ReviewUpTo, kind)
+	}
+	return c
+}
+
+// ---- Move-in ---------------------------------------------------------------
+
+func checkMoveIn(l *listing.Listing, from, to, now time.Time) listing.Check {
+	c := listing.Check{Name: listing.CritMoveIn}
+	window := from.Format("02.01.2006") + "–" + to.Format("02.01.2006")
+	av := strings.TrimSpace(l.AvailableFrom)
+	var date time.Time
+	switch lav := strings.ToLower(av); {
+	case av == "":
+		c.Detail = "move-in date not stated"
+		return c
+	case strings.Contains(lav, "vereinbarung"):
+		c.Detail = "available by arrangement – ask about " + window
+		return c
+	case strings.Contains(lav, "sofort"):
+		date = now
+	default:
+		d, ok := ParseDate(av)
+		if !ok {
+			c.Detail = "unreadable date: " + av
+			return c
+		}
+		date = d
+	}
+	switch {
+	case date.After(to):
+		c.Result, c.Detail = listing.Fail, "available from "+av+", after "+to.Format("02.01.2006")
+	case !date.Before(from):
+		c.Result, c.Detail = listing.Pass, "available from "+av
+	case l.FlexibleStart:
+		c.Result, c.Detail = listing.Pass, "rental window opens "+av+"; start in "+window+" possible"
+	default:
+		c.Detail = "available from " + av + " (earlier) – ask if a start in " + window + " works"
+	}
+	return c
+}
+
 // ---- Evaluation ------------------------------------------------------------
+
+// RulesVersion is part of the criteria fingerprint. Bump it when a change to
+// the evaluation code should re-check listings rejected under the old rules.
+const RulesVersion = 2
+
+// Fingerprint identifies a set of criteria plus the rules applying them.
+func Fingerprint(cr config.Criteria) string {
+	b, _ := json.Marshal(cr)
+	sum := sha256.Sum256(append(b, byte(RulesVersion)))
+	return hex.EncodeToString(sum[:4])
+}
 
 type Evaluator struct {
 	Criteria config.Criteria
@@ -258,8 +328,8 @@ func (e *Evaluator) Evaluate(ctx context.Context, l *listing.Listing) {
 	}
 	text := l.Title + "\n" + l.Text
 	var checks []listing.Check
-	if cr.MaxWarmRent > 0 {
-		checks = append(checks, numCheck(listing.CritRent, l.WarmRent, func(v float64) bool { return v <= cr.MaxWarmRent }, " €", l.RentNote))
+	if lim := cr.RentLimit(l.Furnished); lim.Max > 0 {
+		checks = append(checks, checkRent(l, lim))
 	}
 	if cr.MinRooms > 0 {
 		checks = append(checks, numCheck(listing.CritRooms, l.Rooms, func(v float64) bool { return v >= cr.MinRooms }, "", ""))
@@ -276,12 +346,21 @@ func (e *Evaluator) Evaluate(ctx context.Context, l *listing.Listing) {
 	if cr.RequireKitchen {
 		checks = append(checks, checkKitchen(text))
 	}
+	moveIn := cr.MoveInFrom != ""
+	if moveIn {
+		checks = append(checks, checkMoveIn(l, cr.MoveFrom, cr.MoveTo, now))
+	}
 	if cr.MinDurationMonths > 0 {
 		minMonths := cr.MinDurationMonths
 		if l.MaxLeaseMonths > 0 && l.MaxLeaseMonths < minMonths {
 			minMonths = l.MaxLeaseMonths
 		}
-		checks = append(checks, checkDuration(text, minMonths, now))
+		// The lease has to run long enough from the day we move in, not from today.
+		leaseStart := now
+		if moveIn && cr.MoveFrom.After(now) {
+			leaseStart = cr.MoveFrom
+		}
+		checks = append(checks, checkDuration(text, minMonths, leaseStart))
 	}
 	if cr.RequireAnmeldung {
 		checks = append(checks, checkAnmeldung(text))

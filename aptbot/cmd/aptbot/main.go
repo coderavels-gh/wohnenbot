@@ -47,6 +47,8 @@ type app struct {
 	dryRun  bool
 	noAlert bool
 	loc     *time.Location
+
+	criteria string // fingerprint stored with each Seen record
 }
 
 func main() {
@@ -99,6 +101,7 @@ func main() {
 	if len(a.sources) == 0 {
 		log.Fatal("no sources enabled")
 	}
+	a.criteria = analyze.Fingerprint(cfg.Criteria)
 	a.eval = &analyze.Evaluator{Criteria: cfg.Criteria, Transit: analyze.NewTransitChecker(client, cfg.ContactEmail)}
 
 	if cfg.Sheets != nil && cfg.Sheets.SpreadsheetID != "" {
@@ -106,9 +109,9 @@ func main() {
 		if err != nil {
 			log.Fatalf("google sheets: %v", err)
 		}
-		a.store = &store.Sheet{Client: a.sheet, Tab: cfg.Sheets.SeenTab}
+		a.store = &store.Sheet{Client: a.sheet, Tab: cfg.Sheets.SeenTab, Criteria: a.criteria}
 	} else {
-		a.store = &store.File{Path: cfg.StateFile}
+		a.store = &store.File{Path: cfg.StateFile, Criteria: a.criteria}
 	}
 
 	if *once {
@@ -171,9 +174,9 @@ func (a *app) run(ctx context.Context) error {
 			rows = append(rows, sheetRow(l))
 		}
 		recs = append(recs, store.Record{Key: l.Key(), Source: l.Source, Verdict: string(l.Verdict),
-			URL: l.URL, FirstSeen: now.Format("2006-01-02 15:04"), Title: l.Title})
+			URL: l.URL, FirstSeen: now.Format("2006-01-02 15:04"), Title: l.Title, Criteria: a.criteria})
 	}
-	log.Printf("run: %d new listings → %d match, %d review, %d rejected (%s)",
+	log.Printf("run: %d listings evaluated (new, or rejected under older criteria) → %d match, %d review, %d rejected (%s)",
 		len(all), counts[listing.Match], counts[listing.Review], counts[listing.Reject], time.Since(start).Round(time.Second))
 
 	if a.dryRun {
@@ -306,6 +309,13 @@ func cell(l *listing.Listing, name string) string {
 	return c.Result.Symbol() + " " + c.Detail
 }
 
+func availableCell(l *listing.Listing) string {
+	if c := cell(l, listing.CritMoveIn); c != "" {
+		return c
+	}
+	return l.AvailableFrom
+}
+
 func numCell(v float64) any {
 	if v == 0 {
 		return ""
@@ -323,7 +333,7 @@ func sheetRow(l *listing.Listing) []any {
 	link := l.URL // plain URL: Sheets turns it into a link; avoids locale-dependent formula separators
 	return []any{
 		l.FirstSeen.Format("2006-01-02 15:04"), "New", string(l.Verdict), l.Source, l.Title,
-		numCell(l.WarmRent), numCell(l.SizeM2), numCell(l.Rooms), l.AvailableFrom, loc,
+		numCell(l.WarmRent), numCell(l.SizeM2), numCell(l.Rooms), availableCell(l), loc,
 		cell(l, listing.CritTransit), cell(l, listing.CritBalcony), cell(l, listing.CritWasher),
 		cell(l, listing.CritKitchen), cell(l, listing.CritDuration), cell(l, listing.CritAnmeldung),
 		unknowns(l), link, "", l.Key(),

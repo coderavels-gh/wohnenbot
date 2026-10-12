@@ -41,6 +41,7 @@ const (
 	CritDuration  = "Duration"
 	CritAnmeldung = "Anmeldung"
 	CritTransit   = "Transit"
+	CritMoveIn    = "Move-in"
 )
 
 type Check struct {
@@ -70,7 +71,11 @@ type Listing struct {
 	District       string
 	Lat, Lon       float64 // if the source provides coordinates
 
-	AvailableFrom string
+	AvailableFrom string // "01.12.2026", "sofort", "nach Vereinbarung" or ""
+	// FlexibleStart: AvailableFrom opens a rental window and any later start
+	// date inside it works (City-Wohnen's "ab 12.10.2026 bis 31.12.2027").
+	FlexibleStart bool
+	Furnished     bool   // selects the furnished or unfurnished rent limit
 	Text          string // main detail text used for keyword analysis
 	TransitText   string // dedicated "Lage"/transport text, if the source has one
 

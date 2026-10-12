@@ -152,6 +152,9 @@ node(around:%[2]d,%[3]f,%[4]f)[public_transport=station];
 	}
 	modes := map[string]string{}
 	for _, e := range resp.Elements {
+		if notInService(e.Tags) {
+			continue
+		}
 		for _, m := range classifyStop(e.Tags) {
 			if _, ok := modes[m]; !ok {
 				modes[m] = e.Tags["name"]
@@ -162,6 +165,21 @@ node(around:%[2]d,%[3]f,%[4]f)[public_transport=station];
 	t.nearby[key] = modes
 	t.mu.Unlock()
 	return modes, nil
+}
+
+// notInService: stations under construction, planned or closed, such as the
+// new U5 stops tagged "U Steilshoop (in Bau)".
+func notInService(tags map[string]string) bool {
+	name := strings.ToLower(tags["name"])
+	if strings.Contains(name, "in bau") || strings.Contains(name, "geplant") {
+		return true
+	}
+	for _, k := range []string{"construction", "proposed", "disused", "abandoned"} {
+		if tags[k] != "" && tags[k] != "no" || tags["railway"] == k || tags["public_transport"] == k {
+			return true
+		}
+	}
+	return false
 }
 
 func classifyStop(tags map[string]string) []string {

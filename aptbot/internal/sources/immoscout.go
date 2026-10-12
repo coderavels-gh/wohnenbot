@@ -236,9 +236,12 @@ func isOneOf(s string, opts ...string) bool {
 }
 
 var (
-	reISStreet    = regexp.MustCompile(`^[^,\d]*[A-Za-zÄÖÜäöüß.]\s*\d+[a-zA-Z]?\s*,`) // "Hoheluftchaussee 12, ..."
-	reISDistrict  = regexp.MustCompile(`\d{5}\s+Hamburg,?\s*([^,\n]+)?`)
-	reISTemporary = regexp.MustCompile(`(?i)möbliert|furnished|auf zeit|befristet|zeitmiet|zwischenmiete|untermiete|wg-zimmer`)
+	reISStreet   = regexp.MustCompile(`^[^,\d]*[A-Za-zÄÖÜäöüß.]\s*\d+[a-zA-Z]?\s*,`) // "Hoheluftchaussee 12, ..."
+	reISDistrict = regexp.MustCompile(`\d{5}\s+Hamburg,?\s*([^,\n]+)?`)
+	// "teilmöbliert" (partly furnished) counts as unfurnished for the rent limit.
+	reISFurnished   = regexp.MustCompile(`(?i)\bmöbliert|vollmöbliert|voll möbliert|\bfurnished\b|möbliert\s*:\s*ja`)
+	reISUnfurnished = regexp.MustCompile(`(?i)unmöbliert|nicht möbliert|teilmöbliert|teilweise möbliert|unfurnished|möbliert\s*:\s*nein`)
+	reISTemporary   = regexp.MustCompile(`(?i)möbliert|furnished|auf zeit|befristet|zeitmiet|zwischenmiete|untermiete|wg-zimmer`)
 )
 
 // BuildImmoScoutListing combines list data and (optional) expose JSON.
@@ -284,6 +287,8 @@ func BuildImmoScoutListing(it isItem, expose []byte) *listing.Listing {
 	if l.Rooms == 0 {
 		l.Rooms = analyze.FindRooms(l.Text)
 	}
+	l.AvailableFrom = analyze.FindAvailableFrom(l.Text)
+	l.Furnished = reISFurnished.MatchString(l.Text) && !reISUnfurnished.MatchString(l.Text)
 	if !reISTemporary.MatchString(l.Text) {
 		// A normal (unfurnished, open-ended) German lease: Anmeldung is a legal
 		// right and the contract is unlimited unless the ad says otherwise.

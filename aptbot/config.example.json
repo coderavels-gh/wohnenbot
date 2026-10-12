@@ -4,10 +4,15 @@
   "contact_email": "you@example.com",
 
   "criteria": {
-    "max_warm_rent": 1600,
+    "warm_rent": {
+      "furnished":   { "max": 1700, "review_up_to": 1800 },
+      "unfurnished": { "max": 1400, "review_up_to": 1500 }
+    },
     "min_rooms": 2,
     "min_size_m2": 50,
     "min_duration_months": 12,
+    "move_in_from": "2026-12-01",
+    "move_in_to": "2026-12-31",
     "require_balcony": true,
     "require_washing_machine": true,
     "washing_machine_connection_ok": true,

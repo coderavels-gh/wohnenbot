@@ -167,3 +167,19 @@ func TestSearchURLToAPI(t *testing.T) {
 		t.Fatalf("bad api url: %s", got)
 	}
 }
+
+func TestImmoScoutFurnished(t *testing.T) {
+	cases := map[string]bool{
+		"Möblierte 2-Zimmer-Wohnung in Eppendorf": true,
+		"Voll möbliert, sofort beziehbar":         true,
+		"Schöne Altbauwohnung mit Balkon":         false,
+		"Teilmöbliert: Küche und Einbauschrank":   false,
+		"Die Wohnung wird unmöbliert vermietet":   false,
+	}
+	for title, want := range cases {
+		l := BuildImmoScoutListing(isItem{ID: "1", Title: title}, nil)
+		if l.Furnished != want {
+			t.Errorf("%q → furnished=%v want %v", title, l.Furnished, want)
+		}
+	}
+}

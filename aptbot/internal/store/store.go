@@ -19,6 +19,15 @@ type Record struct {
 	URL       string `json:"url"`
 	FirstSeen string `json:"first_seen"`
 	Title     string `json:"title"`
+	// Fingerprint of the criteria the listing was judged under. A rejected
+	// listing is evaluated again once the criteria change.
+	Criteria string `json:"criteria,omitempty"`
+}
+
+// skip reports whether a recorded listing needs no new evaluation: it was
+// written to the tracker (MATCH/REVIEW), or rejected under the current criteria.
+func skip(r Record, criteria string) bool {
+	return r.Verdict != "REJECT" || r.Criteria == criteria
 }
 
 type Store interface {
@@ -31,9 +40,10 @@ type Store interface {
 // ---- local JSON file -------------------------------------------------------
 
 type File struct {
-	Path string
-	mu   sync.Mutex
-	recs map[string]Record
+	Path     string
+	Criteria string // current criteria fingerprint
+	mu       sync.Mutex
+	recs     map[string]Record
 }
 
 func (f *File) Load(context.Context) error {
@@ -58,8 +68,8 @@ func (f *File) Load(context.Context) error {
 func (f *File) Seen(key string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	_, ok := f.recs[key]
-	return ok
+	r, ok := f.recs[key]
+	return ok && skip(r, f.Criteria)
 }
 func (f *File) Count() int { f.mu.Lock(); defer f.mu.Unlock(); return len(f.recs) }
 
@@ -88,47 +98,64 @@ func (f *File) Add(_ context.Context, recs []Record) error {
 // Keeping state in the sheet makes the bot stateless: it can run on your Mac,
 // a home server or a free CI runner and they all share the same memory.
 
-var SeenHeader = []string{"Key", "Source", "Verdict", "First seen", "Title", "URL"}
+var SeenHeader = []string{"Key", "Source", "Verdict", "First seen", "Title", "URL", "Criteria"}
 
+// Sheet keeps one row per evaluation; a re-evaluated listing gets a new row
+// and the last row for a key wins.
 type Sheet struct {
-	Client *sheets.Client
-	Tab    string
-	mu     sync.Mutex
-	keys   map[string]bool
+	Client   *sheets.Client
+	Tab      string
+	Criteria string // current criteria fingerprint
+	mu       sync.Mutex
+	recs     map[string]Record
 }
 
 func (s *Sheet) Load(ctx context.Context) error {
 	if err := s.Client.EnsureTab(ctx, s.Tab, SeenHeader, -1, nil); err != nil {
 		return err
 	}
-	col, err := s.Client.Column(ctx, s.Tab, "A")
+	rows, err := s.Client.Rows(ctx, s.Tab, "A:G")
 	if err != nil {
 		return err
 	}
-	s.keys = map[string]bool{}
-	for i, k := range col {
-		if i == 0 && k == "Key" {
+	s.recs = map[string]Record{}
+	for i, row := range rows {
+		if i == 0 && len(row) > 0 && row[0] == "Key" {
 			continue
 		}
-		s.keys[k] = true
+		col := func(n int) string {
+			if n < len(row) {
+				return row[n]
+			}
+			return ""
+		}
+		if col(0) == "" {
+			continue
+		}
+		s.recs[col(0)] = Record{Key: col(0), Source: col(1), Verdict: col(2), FirstSeen: col(3), Title: col(4), URL: col(5), Criteria: col(6)}
 	}
 	return nil
 }
 
-func (s *Sheet) Seen(key string) bool { s.mu.Lock(); defer s.mu.Unlock(); return s.keys[key] }
-func (s *Sheet) Count() int           { s.mu.Lock(); defer s.mu.Unlock(); return len(s.keys) }
+func (s *Sheet) Seen(key string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.recs[key]
+	return ok && skip(r, s.Criteria)
+}
+func (s *Sheet) Count() int { s.mu.Lock(); defer s.mu.Unlock(); return len(s.recs) }
 
 func (s *Sheet) Add(ctx context.Context, recs []Record) error {
 	rows := make([][]any, 0, len(recs))
 	for _, r := range recs {
-		rows = append(rows, []any{r.Key, r.Source, r.Verdict, r.FirstSeen, r.Title, r.URL})
+		rows = append(rows, []any{r.Key, r.Source, r.Verdict, r.FirstSeen, r.Title, r.URL, r.Criteria})
 	}
 	if err := s.Client.Append(ctx, s.Tab, rows); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	for _, r := range recs {
-		s.keys[r.Key] = true
+		s.recs[r.Key] = r
 	}
 	s.mu.Unlock()
 	return nil

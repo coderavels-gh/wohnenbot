@@ -241,3 +241,21 @@ func (c *Client) Column(ctx context.Context, tab, col string) ([]string, error) 
 	}
 	return out, nil
 }
+
+// Rows returns the cells of a range (e.g. "A:G") as strings, header included.
+func (c *Client) Rows(ctx context.Context, tab, rng string) ([][]string, error) {
+	var resp struct {
+		Values [][]any `json:"values"`
+	}
+	if err := c.call(ctx, "GET", "/values/"+a1(tab, rng), nil, &resp); err != nil {
+		return nil, err
+	}
+	out := make([][]string, len(resp.Values))
+	for i, r := range resp.Values {
+		out[i] = make([]string, len(r))
+		for j, v := range r {
+			out[i][j] = fmt.Sprint(v)
+		}
+	}
+	return out, nil
+}

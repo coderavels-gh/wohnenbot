@@ -19,6 +19,7 @@ type Source interface {
 
 // furnishedAgencyDefaults: these agencies only list fully furnished flats.
 func furnishedAgencyDefaults(l *listing.Listing, site string) {
+	l.Furnished = true
 	l.SetDefault(listing.CritKitchen, listing.Pass, "fully furnished "+site+" flat (kitchen included)")
 }
 

@@ -165,3 +165,14 @@ func Snippet(text string, start, end int) string {
 }
 
 func utf8Start(b byte) bool { return b&0xC0 != 0x80 }
+
+var reAvailable = regexp.MustCompile(`(?i)(?:bezugsfrei\s+ab|bezugsfertig\s+ab|frei\s+ab|verfügbar\s+ab|einzug\s+ab|einzugstermin|bezugstermin|available\s+from)\s*:?\s*(?:dem\s+|zum\s+)?(\d{1,2}\.\d{1,2}\.\d{4}|sofort|nach\s+vereinbarung)`)
+
+// FindAvailableFrom returns the move-in date as written ("01.12.2026",
+// "sofort", "nach Vereinbarung"), or "" if the text doesn't say.
+func FindAvailableFrom(text string) string {
+	if m := reAvailable.FindStringSubmatch(text); m != nil {
+		return m[1]
+	}
+	return ""
+}
