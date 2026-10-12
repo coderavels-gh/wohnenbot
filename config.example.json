@@ -1,0 +1,57 @@
+{
+  "interval_minutes": 30,
+  "request_delay_ms": 1500,
+  "contact_email": "you@example.com",
+
+  "criteria": {
+    "max_warm_rent": 1600,
+    "min_rooms": 2,
+    "min_size_m2": 50,
+    "min_duration_months": 12,
+    "require_balcony": true,
+    "require_washing_machine": true,
+    "washing_machine_connection_ok": true,
+    "require_kitchen": true,
+    "require_anmeldung": true,
+    "min_transit_modes": 2,
+    "bus_radius_m": 400,
+    "rail_radius_m": 900
+  },
+
+  "sources": {
+    "immoscout": {
+      "enabled": true,
+      "fetch_expose_details": true,
+      "search_urls": [
+        "https://www.immobilienscout24.de/Suche/de/hamburg/hamburg/wohnung-mieten?numberofrooms=2.0-&price=-1600.0&livingspace=50.0-&pricetype=calculatedtotalrent&equipment=balcony&sorting=2"
+      ]
+    },
+    "homecompany": {
+      "enabled": true,
+      "list_url": "https://www.homecompany.de/agenturen/hamburg/wohnungen/",
+      "max_pages": 25
+    },
+    "citywohnen": {
+      "enabled": true,
+      "list_urls": ["https://www.city-wohnen.de/moeblierte-wohnung-mieten-hamburg/"]
+    }
+  },
+
+  "google_sheets": {
+    "spreadsheet_id": "PASTE_THE_ID_FROM_THE_SHEET_URL",
+    "credentials_file": "secrets/service-account.json",
+    "listings_tab": "Listings",
+    "seen_tab": "Seen"
+  },
+
+  "notify": {
+    "alert_on_review": true,
+    "max_per_run": 8,
+    "whatsapp": [
+      { "name": "person1", "phone": "+49XXXXXXXXXX", "apikey": "${CALLMEBOT_KEY_person1}" },
+      { "name": "Person 2", "phone": "+49XXXXXXXXXX", "apikey": "${CALLMEBOT_KEY_2}" }
+    ],
+    "ntfy": { "server": "https://ntfy.sh", "topic": "CHANGE-ME-random-long-topic-name", "always": false },
+    "email": null
+  }
+}

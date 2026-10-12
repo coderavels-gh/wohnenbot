@@ -1,0 +1,5 @@
+{"header":{"id":"161234567"},"sections":[
+ {"type":"ATTRIBUTE_LIST","title":"Kosten","attributes":[{"label":"Kaltmiete:","text":"1.180 €"},{"label":"Nebenkosten:","text":"200 €"},{"label":"Heizkosten:","text":"100 €"},{"label":"Gesamtmiete:","text":"1.480 €"}]},
+ {"type":"ATTRIBUTE_LIST","title":"Ausstattung","attributes":[{"label":"Balkon/Terrasse:","text":"Ja"},{"label":"Einbauküche:","text":"Ja"}]},
+ {"type":"TEXT_AREA","title":"Ausstattung","text":"Waschmaschinenanschluss im Bad, Einbauküche mit Ceranfeld."},
+ {"type":"TEXT_AREA","title":"Lage","text":"U3 Hoheluftbrücke 3 Minuten, Metrobus 5 vor der Tür."}]}

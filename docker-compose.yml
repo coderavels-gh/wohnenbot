@@ -1,0 +1,12 @@
+services:
+  aptbot:
+    build: .
+    restart: unless-stopped
+    environment:
+      - CALLMEBOT_KEY_person1=${CALLMEBOT_KEY_person1}
+      - CALLMEBOT_KEY_2=${CALLMEBOT_KEY_2}
+      - TZ=Europe/Berlin
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./secrets:/app/secrets:ro
+      - ./data:/app/data

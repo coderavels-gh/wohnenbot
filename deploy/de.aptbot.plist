@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS LaunchAgent: runs one aptbot pass every 30 minutes while you're logged in.
+  If the Mac was asleep, launchd runs the missed pass right after wake.
+  Install:  ./deploy/install-mac.sh
+  Logs:     ~/Library/Logs/aptbot.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>de.aptbot</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__DIR__/bin/aptbot</string>
+    <string>-once</string>
+    <string>-config</string>
+    <string>__DIR__/config.json</string>
+  </array>
+  <key>WorkingDirectory</key><string>__DIR__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CALLMEBOT_KEY_person1</key><string>__KEY_H__</string>
+    <key>CALLMEBOT_KEY_2</key><string>__KEY_R__</string>
+  </dict>
+  <key>StartInterval</key><integer>1800</integer>
+  <key>RunAtLoad</key><true/>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/aptbot.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/aptbot.log</string>
+</dict>
+</plist>
