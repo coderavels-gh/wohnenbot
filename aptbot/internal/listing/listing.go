@@ -77,8 +77,11 @@ type Listing struct {
 	// rather than sent to review (City-Wohnen, ImmoScout: flats free earlier
 	// get rented long before the move-in date).
 	StrictStart bool
-	Furnished   bool   // selects the furnished or unfurnished rent limit
-	PlusOnly    bool   // ImmoScout: only Plus members can contact the landlord
+	Furnished   bool // selects the furnished or unfurnished rent limit
+	PlusOnly    bool // ImmoScout: only Plus members can contact the landlord
+	// Partial: built from an index card only (no detail page, no text). It
+	// was rejected on the card's facts; re-checking it needs a fetch.
+	Partial     bool
 	Text        string // main detail text used for keyword analysis
 	TransitText string // dedicated "Lage"/transport text, if the source has one
 

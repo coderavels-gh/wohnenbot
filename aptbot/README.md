@@ -91,6 +91,7 @@ All three keep their state in the sheet, so you can run more than one, for examp
 
 ## Known limits / next steps
 - **Suchen+ early access.** The mobile API is used without logging in, so listings that are visible only to Suchen+ members during the first hours may show up later than in the app. A good way to cover that gap is to turn on ImmoScout's own instant push for the same saved search in the ImmoScout app.
-- **HomeCompany only rents furnished flats for limited periods**, often 3–12 months. With your 12-month minimum most of its listings will be rejected on duration. City-Wohnen flats pass if they allow the full 12 months.
+- **HomeCompany and City-Wohnen only rent furnished flats for limited periods.** For both, the duration minimum is capped at 12 months: a flat that allows the full 12 months passes, and one with no end date counts as 12 months. A flat available before the move-in window is rejected.
+- **HomeCompany index cards** already show rent, rooms, size and move-in date. A flat that fails on those is recorded from its card alone; only the rest get their detail page fetched (about 16 index pages + a few detail pages per run).
 - **Site changes.** If a site changes its layout, the bot logs that source as `FAILED` or as `0 listings on index`. Run `-dry-run -only <source>` to see what it extracts.
 - **Landlord messaging** (next phase): this will reuse the same listing data and your Status column, for example "send the intro when Status = Interested".

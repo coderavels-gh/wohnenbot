@@ -439,6 +439,36 @@ func (e *Evaluator) Evaluate(ctx context.Context, l *listing.Listing) {
 	l.Verdict = verdictOf(checks)
 }
 
+// QuickReject reports whether a listing fails on the facts an index card
+// shows (rent, rooms, size, move-in), so its detail page needn't be fetched.
+// Unknown facts never reject.
+func (e *Evaluator) QuickReject(l *listing.Listing) bool {
+	cr := e.Criteria
+	now := time.Now()
+	if e.Now != nil {
+		now = e.Now()
+	}
+	var checks []listing.Check
+	if lim := cr.RentLimit(l.Furnished); lim.Max > 0 {
+		checks = append(checks, checkRent(l, lim))
+	}
+	if cr.MinRooms > 0 {
+		checks = append(checks, numCheck(listing.CritRooms, l.Rooms, func(v float64) bool { return v >= cr.MinRooms }, "", ""))
+	}
+	if cr.MinSizeM2 > 0 {
+		checks = append(checks, numCheck(listing.CritSize, l.SizeM2, func(v float64) bool { return v >= cr.MinSizeM2 }, " m²", ""))
+	}
+	if cr.MoveInFrom != "" {
+		checks = append(checks, checkMoveIn(l, cr.MoveFrom, cr.MoveTo, now))
+	}
+	for _, c := range checks {
+		if c.Result == listing.Fail {
+			return true
+		}
+	}
+	return false
+}
+
 func verdictOf(checks []listing.Check) listing.Verdict {
 	v := listing.Match
 	for _, c := range checks {

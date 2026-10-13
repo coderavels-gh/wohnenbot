@@ -245,3 +245,9 @@ func TestTransitCachePersists(t *testing.T) {
 		t.Error("expired entry loaded")
 	}
 }
+
+func TestAreaInRunningText(t *testing.T) {
+	if a := FindArea("Helle Wohnung, 62 m², ruhig gelegen"); a != 62 {
+		t.Fatalf("area %v", a)
+	}
+}

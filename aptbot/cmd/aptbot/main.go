@@ -100,7 +100,9 @@ func main() {
 		return *only == "" || strings.Contains(strings.ToLower(*only), name)
 	}
 	if cfg.Sources.HomeCompany.Enabled && want("homecompany") {
-		a.sources = append(a.sources, &sources.HomeCompany{Client: client, Cfg: cfg.Sources.HomeCompany})
+		hc := &sources.HomeCompany{Client: client, Cfg: cfg.Sources.HomeCompany}
+		hc.Prefilter = func(l *listing.Listing) bool { return a.eval.QuickReject(l) }
+		a.sources = append(a.sources, hc)
 	}
 	if cfg.Sources.CityWohnen.Enabled && want("citywohnen") {
 		a.sources = append(a.sources, &sources.CityWohnen{Client: client, Cfg: cfg.Sources.CityWohnen})
@@ -321,8 +323,8 @@ func (a *app) fetch(ctx context.Context, src sources.Source, emit func(*listing.
 			return false // new listing
 		}
 		l, derr := listing.Decode(a.store.Data(ctx, key))
-		if derr != nil {
-			return false // no usable stored data: fetch it again
+		if derr != nil || l.Partial {
+			return false // no usable stored data (or only an index card): fetch it again
 		}
 		revived++
 		emit(l)

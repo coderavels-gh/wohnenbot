@@ -214,3 +214,54 @@ func TestImmoScoutPaywallTag(t *testing.T) {
 		t.Error("paywall tag not detected correctly")
 	}
 }
+
+func TestHomeCompanyIndexCards(t *testing.T) {
+	cards := ParseHomeCompanyIndex(read(t, "homecompany_index.html"))
+	if len(cards) != 12 {
+		t.Fatalf("%d cards, want 12", len(cards))
+	}
+	var g, s *listing.Listing
+	for _, c := range cards {
+		switch {
+		case strings.HasPrefix(c.ID, "zentrale-lage-im-grindelhof"):
+			g = c
+		case strings.HasPrefix(c.ID, "stilvolle-3-zimmer-wohnung-mit-balkon"):
+			s = c
+		}
+	}
+	if g == nil || s == nil {
+		t.Fatal("expected cards missing")
+	}
+	// The badge before a card's body belongs to that card: Grindelhof is 01.02.2027.
+	if g.WarmRent != 1550 || g.Rooms != 2 || g.SizeM2 != 46 || g.AvailableFrom != "01.02.2027" || g.District != "Eimsbüttel" || !g.Partial {
+		t.Errorf("grindelhof card: %+v", g)
+	}
+	if s.WarmRent != 2150 || s.Rooms != 3 || s.SizeM2 != 68 || s.AvailableFrom != "13.10.2026" || s.Lat < 53.56 || s.Lat > 53.57 {
+		t.Errorf("stilvolle card: rent=%v rooms=%v size=%v avail=%q lat=%v", s.WarmRent, s.Rooms, s.SizeM2, s.AvailableFrom, s.Lat)
+	}
+	if !g.StrictStart || g.MaxLeaseMonths != 12 || !g.Furnished {
+		t.Error("HomeCompany defaults missing on card")
+	}
+}
+
+func TestHomeCompanyLiveDetail(t *testing.T) {
+	l := ParseHomeCompanyDetail(read(t, "homecompany_detail_live.html"))
+	if l.WarmRent != 2150 || l.SizeM2 != 68 || l.Rooms != 3 || l.AvailableFrom != "13.10.2026" || l.District != "Eimsbüttel" {
+		t.Fatalf("parsed: rent=%v size=%v rooms=%v avail=%q district=%q", l.WarmRent, l.SizeM2, l.Rooms, l.AvailableFrom, l.District)
+	}
+	ev := evaluator()
+	ev.Criteria.MoveInFrom, ev.Criteria.MoveInTo = "2026-12-01", "2026-12-31"
+	ev.Criteria.MoveFrom = time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	ev.Criteria.MoveTo = time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+	if !ev.QuickReject(l) {
+		t.Error("2150 € / available 13.10. should be rejected from the card facts")
+	}
+	ev.Evaluate(context.Background(), l)
+	if r := result(t, l, listing.CritBalcony); r != listing.Pass {
+		t.Errorf("Südbalkon not found: %v", r)
+	}
+	if r := result(t, l, listing.CritDuration); r != listing.Pass {
+		c, _ := l.Check(listing.CritDuration)
+		t.Errorf("duration %v (%s): Mindestmietdauer is a minimum, not a limit", r, c.Detail)
+	}
+}

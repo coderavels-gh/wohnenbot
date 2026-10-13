@@ -88,7 +88,8 @@ func FindWarmRent(text string, extraWarmLabels string) RentResult {
 }
 
 var (
-	reAreaAny  = regexp.MustCompile(`(?i)` + num + `\s*(?:m²|m2|qm)\b`)
+	// "²" is not a word character for \b, so "m²" needs none ("62 m², …").
+	reAreaAny  = regexp.MustCompile(`(?i)` + num + `\s*(?:m²|m2\b|qm\b)`)
 	reRoomsPre = regexp.MustCompile(`(?i)` + num + `\s*(?:-\s*)?(?:Zimmer|Zi\.|Zi\b|Raum|Räume)`)
 )
 
