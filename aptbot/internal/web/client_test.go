@@ -1,0 +1,67 @@
+package web
+
+import (
+	"compress/flate"
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func TestBlockedHostIsLeftAlone(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+	c := NewClient(time.Millisecond)
+	ctx := context.Background()
+	if _, err := c.Get(ctx, srv.URL+"/a", nil); err == nil {
+		t.Fatal("expected 403 error")
+	}
+	if _, err := c.Get(ctx, srv.URL+"/b", nil); err == nil {
+		t.Fatal("expected skip error")
+	}
+	if n := hits.Load(); n != 1 {
+		t.Fatalf("server hit %d times, want 1 (no retry, no second request)", n)
+	}
+}
+
+func TestRetryAfterHonoured(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hits.Add(1) == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	c := NewClient(time.Millisecond)
+	start := time.Now()
+	body, err := c.Get(context.Background(), srv.URL, nil)
+	if err != nil || string(body) != "ok" {
+		t.Fatalf("body=%q err=%v", body, err)
+	}
+	if time.Since(start) < time.Second {
+		t.Fatal("did not wait for Retry-After")
+	}
+}
+
+func TestRawDeflateBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "deflate")
+		fw, _ := flate.NewWriter(w, flate.DefaultCompression)
+		fw.Write([]byte(`{"total":102}`))
+		fw.Close()
+	}))
+	defer srv.Close()
+	body, err := NewClient(time.Millisecond).Get(context.Background(), srv.URL, nil)
+	if err != nil || string(body) != `{"total":102}` {
+		t.Fatalf("body=%q err=%v", body, err)
+	}
+}

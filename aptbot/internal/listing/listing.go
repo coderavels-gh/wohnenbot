@@ -42,6 +42,7 @@ const (
 	CritAnmeldung = "Anmeldung"
 	CritTransit   = "Transit"
 	CritMoveIn    = "Move-in"
+	CritWBS       = "WBS"
 )
 
 type Check struct {
@@ -73,10 +74,11 @@ type Listing struct {
 
 	AvailableFrom string // "01.12.2026", "sofort", "nach Vereinbarung" or ""
 	// StrictStart: a flat available before the move-in window is rejected
-	// rather than sent to review. City-Wohnen flats free from October get
-	// rented long before a December start.
+	// rather than sent to review (City-Wohnen, ImmoScout: flats free earlier
+	// get rented long before the move-in date).
 	StrictStart bool
 	Furnished   bool   // selects the furnished or unfurnished rent limit
+	PlusOnly    bool   // ImmoScout: only Plus members can contact the landlord
 	Text        string // main detail text used for keyword analysis
 	TransitText string // dedicated "Lage"/transport text, if the source has one
 
@@ -109,4 +111,15 @@ func (l *Listing) Check(name string) (Check, bool) {
 		}
 	}
 	return Check{}, false
+}
+
+// PlusMark prefixes the title of Plus-only listings in the sheet and alerts.
+const PlusMark = "⭐ Plus · "
+
+// DisplayTitle is the title as shown in the tracker and alerts.
+func (l *Listing) DisplayTitle() string {
+	if l.PlusOnly {
+		return PlusMark + l.Title
+	}
+	return l.Title
 }

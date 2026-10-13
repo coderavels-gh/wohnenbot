@@ -97,3 +97,11 @@ func TestSheetsFlow(t *testing.T) {
 		t.Fatalf("token should be cached, got %d token calls", tokenCalls)
 	}
 }
+
+func TestColumnLetter(t *testing.T) {
+	for i, want := range map[int]string{0: "A", 6: "G", 25: "Z", 26: "AA", 27: "AB", 51: "AZ", 52: "BA"} {
+		if got := ColumnLetter(i); got != want {
+			t.Errorf("%d → %s want %s", i, got, want)
+		}
+	}
+}

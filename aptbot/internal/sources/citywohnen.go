@@ -2,6 +2,8 @@ package sources
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -12,8 +14,10 @@ import (
 )
 
 // CityWohnen scrapes https://www.city-wohnen.de (furnished, Hamburg only).
-// The result list is sorted newest-first, so polling the first page every
-// 30 minutes catches every new listing; we don't need its JS pagination.
+// The result list is sorted by move-in date, not by age, so new flats can
+// appear on any page. Every run reads all pages through the endpoint the
+// site's own pager uses (~100 flats, 50 per request); detail pages are only
+// fetched for flats not seen yet.
 type CityWohnen struct {
 	Client *web.Client
 	Cfg    config.CityWohnenConfig
@@ -25,14 +29,58 @@ const cityWohnenMaxLeaseMonths = 12
 
 var reCWDetail = regexp.MustCompile(`^https://www\.city-wohnen\.de/(?:en/)?hamburg/(\d+)-[a-z0-9-]+/?$`)
 
-func (c *CityWohnen) Fetch(ctx context.Context, seen func(string) bool) ([]*listing.Listing, error) {
+const (
+	cwBase     = "https://www.city-wohnen.de/"
+	cwSearch   = cwBase + "rpc.php?service=ciwo&cmd=search&action=objectlist&pageid=9&date_from=&rent_amount_min=&rent_amount_max=&order=&pagesize=50&lang=ger"
+	cwPageSize = 50
+	cwMaxPages = 10
+)
+
+// indexAll reads every result page; ok=false means the endpoint failed and
+// the caller should fall back to the plain list pages.
+func (c *CityWohnen) indexAll(ctx context.Context) (urls []string, ok bool) {
+	for page := 1; page <= cwMaxPages; page++ {
+		body, err := c.Client.Get(ctx, fmt.Sprintf("%s&pagenr=%d", cwSearch, page), map[string]string{
+			"X-Requested-With": "XMLHttpRequest", "Accept": "application/json", "Referer": c.Cfg.ListURLs[0]})
+		var resp struct {
+			Total   int    `json:"total"`
+			Results string `json:"results"`
+		}
+		if err == nil {
+			err = json.Unmarshal(body, &resp)
+		}
+		if err != nil {
+			logf(c.Name(), "search page %d: %v", page, err)
+			return urls, len(urls) > 0
+		}
+		got := web.Links(resp.Results, cwBase, reCWDetail)
+		urls = append(urls, got...)
+		if len(got) == 0 || page*cwPageSize >= resp.Total {
+			break
+		}
+	}
+	return urls, len(urls) > 0
+}
+
+func (c *CityWohnen) Fetch(ctx context.Context, seen func(string) bool, emit func(*listing.Listing)) error {
 	var detailURLs []string
 	known := map[string]bool{}
+	all, ok := c.indexAll(ctx)
+	for _, u := range all {
+		id := reCWDetail.FindStringSubmatch(u)[1]
+		if !known[id] {
+			known[id] = true
+			detailURLs = append(detailURLs, u)
+		}
+	}
 	for i, lu := range c.Cfg.ListURLs {
+		if ok {
+			break // all pages read; the plain list page only shows the first 20
+		}
 		body, err := c.Client.Get(ctx, lu, nil)
 		if err != nil {
 			if i == 0 && len(c.Cfg.ListURLs) == 1 {
-				return nil, err
+				return err
 			}
 			logf(c.Name(), "list %s: %v", lu, err)
 			continue
@@ -46,7 +94,6 @@ func (c *CityWohnen) Fetch(ctx context.Context, seen func(string) bool) ([]*list
 		}
 	}
 	logf(c.Name(), "%d listings on index", len(detailURLs))
-	var out []*listing.Listing
 	for _, u := range detailURLs {
 		id := reCWDetail.FindStringSubmatch(u)[1]
 		if seen(c.Name() + ":" + id) {
@@ -59,9 +106,9 @@ func (c *CityWohnen) Fetch(ctx context.Context, seen func(string) bool) ([]*list
 		}
 		l := ParseCityWohnenDetail(string(body), u)
 		l.ID, l.URL = id, u
-		out = append(out, l)
+		emit(l)
 	}
-	return out, nil
+	return nil
 }
 
 var (

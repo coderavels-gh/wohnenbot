@@ -24,11 +24,17 @@ Every cell in the sheet shows the text the decision was based on, for example `�
 | ≥ 2 rooms, ≥ 50 m² | Parsed from the listing. |
 | Balcony, washing machine, kitchen | German keywords plus negations such as "kein Balkon" or "ohne EBK". A washing-machine hook-up (Waschmaschinenanschluss) counts as a pass; turn that off with `washing_machine_connection_ok`. A shared laundry room counts as ?. |
 | Duration ≥ 12 months or unlimited | Looks for "unbefristet", "Maximale Mietzeit …", "befristet bis …" and date ranges. A normal ImmoScout lease with no time limit mentioned counts as unlimited. City-Wohnen rents for at most 12 months, so for City-Wohnen the minimum is capped at 12 months, and a flat with no end date counts as a pass. |
-| Move-in between `move_in_from` and `move_in_to` | Reads the availability date ("Verfügbar ab", "Bezugsfrei ab", City-Wohnen's "ab … bis …"). A date in the window is ✓ and a date after it is ✗. An earlier date is ? (ask whether a later start works), except on City-Wohnen, where it is ✗: those flats get rented long before a December start. "sofort", "nach Vereinbarung" or no date is ?. Lease duration is measured from the move-in date. |
+| Move-in between `move_in_from` and `move_in_to` | Reads the availability date ("Verfügbar ab", "Bezugsfrei ab", City-Wohnen's "ab … bis …"). A date in the window is ✓ and a date after it is ✗. An earlier date is ? (ask whether a later start works), except on City-Wohnen and ImmoScout, where it is ✗: those flats get rented long before a December start. "sofort", "nach Vereinbarung" or no date is ?. Lease duration is measured from the move-in date. |
 | Anmeldung possible | Explicit wording in the listing. A normal open-ended lease counts as a pass, and City-Wohnen states that every one of its flats allows Anmeldung. |
 | ≥ 2 of Bus / U-Bahn / S-Bahn nearby | If the street address is known, the bot geocodes it and searches OpenStreetMap for stops: bus within 400 m, U/S-Bahn within 900 m. Stations under construction (for example the new U5 stops, "in Bau") are ignored. Otherwise it reads the listing's own location text (HomeCompany's "Lage: U2, U3, Bus 4 …" line, for example). |
 
-**Changing the criteria.** Each `Seen` record stores a short fingerprint of the criteria it was judged under. After you change the criteria, flats rejected earlier that are still online get checked again on the next run, and any that now pass go to the sheet and trigger an alert. Flats already in the sheet are never checked again.
+**Social housing.** Flats that need a WBS (Wohnberechtigungsschein, e.g. "nur mit WBS") are always rejected.
+
+**During a scan** rows are written in batches of 10 (and at the end of each site), so matches reach the sheet and your phone while a long scan is still running.
+
+**The Seen tab** has the same readable columns as Listings (rent, m², checks, …) plus a **Data** column: the bot's compressed copy of everything it extracted. Hide that column if it's in the way, but don't edit it.
+
+**Changing the criteria.** Each `Seen` record stores a short fingerprint of the criteria it was judged under. After you change the criteria, flats rejected earlier that are still online get checked again on the next run, and any that now pass go to the sheet and trigger an alert. Flats already in the sheet are never checked again. The bot re-reads the result pages (a few requests) to see which flats are still online, then re-evaluates them from their stored Data without fetching them again.
 
 ## Setup (about 20 minutes, one time)
 

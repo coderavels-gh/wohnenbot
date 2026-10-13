@@ -69,6 +69,12 @@ func TestFeatures(t *testing.T) {
 		{"Befristet bis 31.03.2027", d, listing.Fail},
 		{"Zwischenmiete für ein Semester", d, listing.Unknown},
 		{"Maximale Mietzeit: 6 Kalendermonate", d, listing.Fail},
+		{"Der Mietvertrag wird auf 5 Jahre befristet", d, listing.Pass},
+		{"Untermiete: Hafencity ab Nov. für 3-6 Monate. Möbliert mit Balkon.", d, listing.Fail},
+		{"Mietdauer: 12–24 Monate", d, listing.Pass},
+		{"Zwischenmiete für 6 Monate", d, listing.Fail},
+		{"Kaution: 3 Monatsmieten. Mietvertrag unbefristet", d, listing.Pass},
+		{"Die Wohnung ist auf 6 Monate befristet", d, listing.Fail},
 	} {
 		if got := c.f(c.text); got != c.want {
 			t.Errorf("%q → %v want %v", c.text, got, c.want)
@@ -131,6 +137,10 @@ func TestFindAvailableFrom(t *testing.T) {
 		"Bezugsfrei ab: sofort":             "sofort",
 		"Frei ab nach Vereinbarung":         "nach Vereinbarung",
 		"Verfügbar ab 15.12.2026":           "15.12.2026",
+		"Bezugsfrei ab:: 1.1.2027":          "1.1.2027", // ImmoScout label ends in ":"
+		"Bezugsfrei ab:: 21.10.26":          "21.10.26",
+		"Bezugsfrei ab:: nach Absprache":    "nach Absprache",
+		"Frei ab: ab sofort":                "sofort",
 		"Kaltmiete 1.100 €, schöne Wohnung": "",
 	}
 	for in, want := range cases {
@@ -185,5 +195,30 @@ func TestNotInService(t *testing.T) {
 	}
 	if notInService(map[string]string{"railway": "station", "station": "subway", "name": "Schlump"}) {
 		t.Error("open station excluded")
+	}
+}
+
+func TestParseDateTwoDigitYear(t *testing.T) {
+	got, ok := ParseDate("21.10.26")
+	if !ok || got != time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC) {
+		t.Fatalf("got %v %v", got, ok)
+	}
+}
+
+func TestWBS(t *testing.T) {
+	cases := map[string]listing.Result{
+		"Schöne 2-Zimmer-Wohnung in Neugraben  *nur mit Wohnberechtigungsschein*": listing.Fail,
+		"Nur mit WBS!":                           listing.Fail,
+		"WBS erforderlich":                       listing.Fail,
+		"Ein WBS §5 muss vorliegen":              listing.Fail,
+		"Öffentlich geförderte Wohnung":          listing.Fail,
+		"Kein WBS erforderlich, frei finanziert": listing.Pass,
+		"WBS ist nicht erforderlich":             listing.Pass,
+		"Schöne Altbauwohnung mit Balkon":        listing.Pass,
+	}
+	for text, want := range cases {
+		if got := checkWBS(text); got.Result != want {
+			t.Errorf("%q → %v want %v (%s)", text, got.Result, want, got.Detail)
+		}
 	}
 }

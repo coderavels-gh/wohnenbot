@@ -162,7 +162,7 @@ func TestSearchURLToAPI(t *testing.T) {
 	q := u.Query()
 	if u.Host != "api.mobile.immobilienscout24.de" || u.Path != "/search/list" ||
 		q.Get("geocodes") != "/de/hamburg/hamburg" || q.Get("realestatetype") != "apartmentrent" ||
-		q.Get("searchType") != "region" || q.Get("price") != "-1600.0" || q.Get("sorting") != "2" ||
+		q.Get("searchType") != "region" || q.Get("price") != "-1600.0" || q.Get("sorting") != "-firstactivation" ||
 		q.Get("enteredFrom") != "" || q.Get("equipment") != "balcony,builtinkitchen" {
 		t.Fatalf("bad api url: %s", got)
 	}
@@ -181,5 +181,36 @@ func TestImmoScoutFurnished(t *testing.T) {
 		if l.Furnished != want {
 			t.Errorf("%q → furnished=%v want %v", title, l.Furnished, want)
 		}
+	}
+}
+
+func TestSearchURLToAPIEnglish(t *testing.T) {
+	got, err := SearchURLToAPI("https://www.immobilienscout24.de/en/search/de/hamburg/hamburg/apartments-for-rent?osmtags=bus_stop,subway&price=-1600.0&livingspace=50.0-&equipment=builtinkitchen,balcony&pricetype=calculatedtotalrent&enteredFrom=result_list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse(got)
+	q := u.Query()
+	if q.Get("geocodes") != "/de/hamburg/hamburg" || q.Get("realestatetype") != "apartmentrent" ||
+		q.Get("osmtags") != "" || q.Get("sorting") != "-firstactivation" || q.Get("price") != "-1600.0" {
+		t.Fatalf("bad api url: %s", got)
+	}
+}
+
+func TestImmoScoutEarlierStartRejected(t *testing.T) {
+	l := BuildImmoScoutListing(isItem{ID: "1", Title: "Wohnung"}, []byte(`{"sections":[{"label":"Bezugsfrei ab:","text":"15.10.2026"}]}`))
+	if l.AvailableFrom != "15.10.2026" || !l.StrictStart {
+		t.Fatalf("avail=%q strict=%v", l.AvailableFrom, l.StrictStart)
+	}
+}
+
+func TestImmoScoutPaywallTag(t *testing.T) {
+	items, err := ParseImmoScoutList([]byte(`{"resultListItems":[{"type":"EXPOSE_RESULT","item":{"id":"171688322","title":"T",
+		"tags":[{"tag":"paywall","value":{"type":"NON_PLUS_USER"}}]}},{"type":"EXPOSE_RESULT","item":{"id":"2","title":"U"}}]}`))
+	if err != nil || len(items) != 2 {
+		t.Fatalf("items=%d err=%v", len(items), err)
+	}
+	if !BuildImmoScoutListing(items[0], nil).PlusOnly || BuildImmoScoutListing(items[1], nil).PlusOnly {
+		t.Error("paywall tag not detected correctly")
 	}
 }

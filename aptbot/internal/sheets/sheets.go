@@ -361,3 +361,70 @@ func (c *Client) Header(ctx context.Context, tab string) ([]string, error) {
 	}
 	return rows[0], nil
 }
+
+// ColumnLetter turns a 0-based column index into its A1 letter(s).
+func ColumnLetter(i int) string {
+	s := ""
+	for i >= 0 {
+		s = string(rune('A'+i%26)) + s
+		i = i/26 - 1
+	}
+	return s
+}
+
+// Columns reads whole columns (0-based indexes) in one request and returns
+// each as a slice of cell strings, header row included.
+func (c *Client) Columns(ctx context.Context, tab string, cols []int) ([][]string, error) {
+	q := url.Values{"majorDimension": {"COLUMNS"}}
+	for _, i := range cols {
+		l := ColumnLetter(i)
+		q.Add("ranges", "'"+strings.ReplaceAll(tab, "'", "''")+"'!"+l+":"+l)
+	}
+	var resp struct {
+		ValueRanges []struct {
+			Values [][]any `json:"values"`
+		} `json:"valueRanges"`
+	}
+	if err := c.call(ctx, "GET", "/values:batchGet?"+q.Encode(), nil, &resp); err != nil {
+		return nil, err
+	}
+	out := make([][]string, len(cols))
+	for i, vr := range resp.ValueRanges {
+		if i >= len(out) || len(vr.Values) == 0 {
+			continue
+		}
+		for _, v := range vr.Values[0] {
+			out[i] = append(out[i], fmt.Sprint(v))
+		}
+	}
+	return out, nil
+}
+
+// AddHeaderColumns appends the names missing from a tab's header row and
+// returns the resulting header.
+func (c *Client) AddHeaderColumns(ctx context.Context, tab string, want []string) ([]string, error) {
+	header, err := c.Header(ctx, tab)
+	if err != nil {
+		return nil, err
+	}
+	have := map[string]bool{}
+	for _, h := range header {
+		have[strings.TrimSpace(h)] = true
+	}
+	var missing []any
+	for _, w := range want {
+		if !have[w] {
+			missing = append(missing, w)
+			header = append(header, w)
+		}
+	}
+	if len(missing) == 0 {
+		return header, nil
+	}
+	start := ColumnLetter(len(header) - len(missing))
+	rng := a1(tab, start+"1")
+	if err := c.call(ctx, "PUT", "/values/"+rng+"?valueInputOption=RAW", map[string]any{"values": [][]any{missing}}, nil); err != nil {
+		return nil, err
+	}
+	return header, nil
+}

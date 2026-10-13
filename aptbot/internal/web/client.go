@@ -3,32 +3,78 @@ package web
 
 import (
 	"bytes"
+	"compress/flate"
+	"compress/zlib"
 	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
 const BrowserUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
 
-// Client throttles requests per host and retries transient failures.
+// Client is deliberately polite: one request at a time per host with a
+// minimum gap, retries only for transient errors, Retry-After honoured, and a
+// host that answers 403/429 is left alone for the rest of the run.
 type Client struct {
 	http  *http.Client
 	delay time.Duration
+	// HostDelay overrides the gap for specific hosts.
+	HostDelay map[string]time.Duration
 
-	mu   sync.Mutex
-	last map[string]time.Time
+	mu      sync.Mutex
+	last    map[string]time.Time
+	blocked map[string]error
 }
 
 func NewClient(delay time.Duration) *Client {
 	return &Client{
-		http:  &http.Client{Timeout: 40 * time.Second},
-		delay: delay,
-		last:  map[string]time.Time{},
+		http:      &http.Client{Timeout: 40 * time.Second},
+		delay:     delay,
+		HostDelay: map[string]time.Duration{},
+		last:      map[string]time.Time{},
+		blocked:   map[string]error{},
 	}
+}
+
+// inflate decodes a "deflate" body, which servers send either zlib-wrapped or
+// raw (City-Wohnen sends raw deflate whatever the request asks for). Go only
+// decodes gzip by itself.
+func inflate(data []byte) ([]byte, error) {
+	var r io.ReadCloser
+	if len(data) > 1 && data[0] == 0x78 {
+		zr, err := zlib.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		r = zr
+	} else {
+		r = flate.NewReader(bytes.NewReader(data))
+	}
+	defer r.Close()
+	return io.ReadAll(io.LimitReader(r, 50<<20))
+}
+
+// maxRetryAfter caps how long one request waits on a Retry-After header.
+const maxRetryAfter = 2 * time.Minute
+
+func retryAfter(h http.Header) time.Duration {
+	v := h.Get("Retry-After")
+	if v == "" {
+		return 0
+	}
+	if s, err := strconv.Atoi(v); err == nil {
+		return time.Duration(s) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		return time.Until(t)
+	}
+	return 0
 }
 
 type HTTPError struct {
@@ -47,7 +93,11 @@ func (e *HTTPError) Error() string {
 
 func (c *Client) wait(ctx context.Context, host string) error {
 	c.mu.Lock()
-	next := c.last[host].Add(c.delay)
+	gap := c.delay
+	if d, ok := c.HostDelay[host]; ok {
+		gap = d
+	}
+	next := c.last[host].Add(gap)
 	now := time.Now()
 	if next.Before(now) {
 		next = now
@@ -69,14 +119,25 @@ func (c *Client) Do(ctx context.Context, method, rawURL string, body []byte, hea
 	if err != nil {
 		return nil, err
 	}
+	c.mu.Lock()
+	berr := c.blocked[u.Host]
+	c.mu.Unlock()
+	if berr != nil {
+		return nil, fmt.Errorf("skipped, %s refused an earlier request this run: %w", u.Host, berr)
+	}
 	var lastErr error
+	var wait time.Duration
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
+			if wait == 0 {
+				wait = time.Duration(attempt*attempt) * 5 * time.Second
+			}
 			select {
-			case <-time.After(time.Duration(attempt*attempt) * 5 * time.Second):
+			case <-time.After(wait):
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
+			wait = 0
 		}
 		if err := c.wait(ctx, u.Host); err != nil {
 			return nil, err
@@ -102,12 +163,30 @@ func (c *Client) Do(ctx context.Context, method, rawURL string, body []byte, hea
 		}
 		data, err := io.ReadAll(io.LimitReader(resp.Body, 20<<20))
 		resp.Body.Close()
+		if err == nil && strings.EqualFold(resp.Header.Get("Content-Encoding"), "deflate") {
+			data, err = inflate(data)
+		}
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		if resp.StatusCode == 429 || resp.StatusCode >= 500 {
+		if resp.StatusCode == 403 || resp.StatusCode == 429 {
+			// Rate-limited or blocked: wait as told once, then leave the host alone.
+			herr := &HTTPError{resp.StatusCode, rawURL, string(data)}
+			if ra := retryAfter(resp.Header); resp.StatusCode == 429 && ra > 0 && ra <= maxRetryAfter && attempt == 0 {
+				wait, lastErr = ra, herr
+				continue
+			}
+			c.mu.Lock()
+			c.blocked[u.Host] = herr
+			c.mu.Unlock()
+			return data, herr
+		}
+		if resp.StatusCode >= 500 {
 			lastErr = &HTTPError{resp.StatusCode, rawURL, string(data)}
+			if ra := retryAfter(resp.Header); ra > 0 && ra <= maxRetryAfter {
+				wait = ra
+			}
 			continue
 		}
 		if resp.StatusCode >= 300 {

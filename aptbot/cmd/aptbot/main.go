@@ -89,6 +89,12 @@ func main() {
 	}
 
 	client := web.NewClient(time.Duration(cfg.RequestDelayMs) * time.Millisecond)
+	// ImmoScout is the site most likely to block; give it a wider gap.
+	client.HostDelay["api.mobile.immobilienscout24.de"] = 3 * time.Second
+	// Overpass rations queries per IP; space them out (it answered 429 after
+	// bursts of test runs).
+	client.HostDelay["overpass-api.de"] = 5 * time.Second
+	client.HostDelay["overpass.private.coffee"] = 5 * time.Second
 	want := func(name string) bool {
 		return *only == "" || strings.Contains(strings.ToLower(*only), name)
 	}
@@ -138,88 +144,184 @@ func main() {
 	}
 }
 
+// flushEvery: listings are written to the sheet, recorded and alerted in
+// batches during the scan, so a long run delivers results as it goes and a
+// crash loses at most one batch (which is simply re-evaluated next run).
+const flushEvery = 10
+
+// runState is the bookkeeping of one run.
+type runState struct {
+	now      time.Time
+	header   []string        // Listings header, for writing by column name
+	baseline map[string]bool // source → first run (record, don't alert)
+	pending  []*listing.Listing
+	counts   map[listing.Verdict]int
+	alerted  int // alerts sent this run (capped at max_per_run)
+	overflow int // alertable listings beyond the cap
+	err      error
+}
+
 func (a *app) run(ctx context.Context) error {
 	start := time.Now()
 	if err := a.store.Load(ctx); err != nil {
 		return fmt.Errorf("load state: %w", err)
 	}
+	rs := &runState{now: time.Now().In(a.loc), baseline: map[string]bool{}, counts: map[listing.Verdict]int{}}
 	if a.sheet != nil && !a.dryRun {
 		if err := a.sheet.EnsureTab(ctx, a.cfg.Sheets.ListingsTab, listingsHeader, 0, statusOptions); err != nil {
 			return fmt.Errorf("prepare sheet: %w", err)
 		}
-	}
-	// First ever run: the sites have dozens of existing listings. Record them
-	// but don't fire dozens of WhatsApp messages.
-	bootstrap := a.store.Count() == 0
-
-	var all []*listing.Listing
-	for _, src := range a.sources {
-		ls, err := src.Fetch(ctx, a.store.Seen)
-		if err != nil {
-			log.Printf("[%s] FAILED: %v", src.Name(), err)
-			continue
-		}
-		all = append(all, ls...)
-	}
-	now := time.Now().In(a.loc)
-	for _, l := range all {
-		l.FirstSeen = now
-		a.eval.Evaluate(ctx, l)
-	}
-	sort.SliceStable(all, func(i, j int) bool { return rank(all[i].Verdict) < rank(all[j].Verdict) })
-
-	counts := map[listing.Verdict]int{}
-	var header []string
-	if a.sheet != nil && !a.dryRun {
 		h, err := a.sheet.Header(ctx, a.cfg.Sheets.ListingsTab)
 		if err != nil {
 			return fmt.Errorf("read tracker header: %w", err)
 		}
-		header = h
-		checkHeader(header)
+		rs.header = h
+		checkHeader(h)
 	}
+	for _, src := range a.sources {
+		// A source's first run: the site has dozens of existing listings.
+		// Record them (candidates still go to the sheet) as a baseline,
+		// without alerting. Sources that can, read all their result pages.
+		first := !a.store.HasSource(src.Name())
+		rs.baseline[src.Name()] = first
+		if fs, ok := src.(interface{ SetFullScan(bool) }); ok {
+			// Also read everything after a criteria change, so rejected
+			// listings that are still online get re-evaluated.
+			recheck := !first && a.store.NeedsRecheck(src.Name())
+			if recheck {
+				log.Printf("[%s] criteria changed: reading all result pages to re-check rejected listings", src.Name())
+			}
+			fs.SetFullScan(first || recheck)
+		}
+		revived, err := a.fetch(ctx, src, func(l *listing.Listing) { a.handle(ctx, rs, l) })
+		if err != nil {
+			log.Printf("[%s] FAILED: %v", src.Name(), err)
+		}
+		if revived > 0 {
+			log.Printf("[%s] re-checked %d rejected listing(s) from stored data, without fetching them", src.Name(), revived)
+		}
+		a.flush(ctx, rs)
+		if first {
+			log.Printf("[%s] first run: recorded its current listings as the baseline, no alerts", src.Name())
+		}
+	}
+	if rs.overflow > 0 && rs.err == nil && !a.noAlert && !a.dryRun {
+		msg := notify.Message{
+			Title: fmt.Sprintf("+%d more flats", rs.overflow),
+			Body:  fmt.Sprintf("🏠 +%d more new flats – see the tracker sheet.", rs.overflow),
+		}
+		if err := a.notify.Send(ctx, []notify.Message{msg}); err != nil {
+			log.Printf("alerts: %v", err)
+		}
+	}
+	n := rs.counts[listing.Match] + rs.counts[listing.Review] + rs.counts[listing.Reject]
+	log.Printf("run: %d listings evaluated (new, or rejected under older criteria) → %d match, %d review, %d rejected (%s)",
+		n, rs.counts[listing.Match], rs.counts[listing.Review], rs.counts[listing.Reject], time.Since(start).Round(time.Second))
+	return rs.err
+}
+
+// handle evaluates one listing and queues it for the next flush.
+func (a *app) handle(ctx context.Context, rs *runState, l *listing.Listing) {
+	l.FirstSeen = rs.now
+	a.eval.Evaluate(ctx, l)
+	rs.counts[l.Verdict]++
+	if a.dryRun {
+		printListing(l)
+		return
+	}
+	rs.pending = append(rs.pending, l)
+	if len(rs.pending) >= flushEvery {
+		a.flush(ctx, rs)
+	}
+}
+
+// flush writes the pending listings: candidates to the tracker, every
+// listing to Seen, then alerts. After a failed write nothing more is written
+// this run; unwritten listings aren't recorded, so the next run retries them.
+func (a *app) flush(ctx context.Context, rs *runState) {
+	if rs.err != nil || len(rs.pending) == 0 {
+		return
+	}
+	batch := rs.pending
+	rs.pending = nil
+	sort.SliceStable(batch, func(i, j int) bool { return rank(batch[i].Verdict) < rank(batch[j].Verdict) })
+
 	var rows [][]any
 	var links []sheets.Link // Title cells, linked to the listing
 	var recs []store.Record
-	for _, l := range all {
-		counts[l.Verdict]++
+	for _, l := range batch {
 		if l.Verdict != listing.Reject {
-			rows = append(rows, orderRow(header, sheetRow(l)))
-			links = append(links, sheets.Link{Text: l.Title, URL: l.URL})
+			rows = append(rows, orderRow(rs.header, sheetRow(l)))
+			links = append(links, sheets.Link{Text: l.DisplayTitle(), URL: l.URL})
 		}
 		recs = append(recs, store.Record{Key: l.Key(), Source: l.Source, Verdict: string(l.Verdict),
-			URL: l.URL, FirstSeen: now.Format("2006-01-02 15:04"), Title: l.Title, Criteria: a.criteria})
+			URL: l.URL, FirstSeen: rs.now.Format("2006-01-02 15:04"), Title: l.Title, Criteria: a.criteria,
+			Cells: seenCells(l), Data: l.Encode()})
 	}
-	log.Printf("run: %d listings evaluated (new, or rejected under older criteria) → %d match, %d review, %d rejected (%s)",
-		len(all), counts[listing.Match], counts[listing.Review], counts[listing.Reject], time.Since(start).Round(time.Second))
-
-	if a.dryRun {
-		for _, l := range all {
-			printListing(l)
-		}
-		return nil
-	}
-	if a.sheet != nil {
+	if a.sheet != nil && len(rows) > 0 {
 		first, err := a.sheet.AppendAt(ctx, a.cfg.Sheets.ListingsTab, rows)
 		if err != nil {
-			return fmt.Errorf("write tracker: %w", err) // state not saved → retried next run
+			rs.err = fmt.Errorf("write tracker: %w", err)
+			return
 		}
-		if col := columnIndex(header, "Title"); first > 0 && col >= 0 {
+		if col := columnIndex(rs.header, "Title"); first > 0 && col >= 0 {
 			if err := a.sheet.SetLinks(ctx, a.cfg.Sheets.ListingsTab, col, first, links); err != nil {
 				log.Printf("tracker: linking titles: %v", err) // rows are written; only the links are missing
 			}
 		}
 	}
 	if err := a.store.Add(ctx, recs); err != nil {
-		return fmt.Errorf("save state: %w", err)
+		rs.err = fmt.Errorf("save state: %w", err)
+		return
 	}
-	if bootstrap || a.noAlert {
-		if bootstrap {
-			log.Printf("first run: recorded %d existing listings without alerting", len(all))
+	if a.noAlert {
+		return
+	}
+	var msgs []notify.Message
+	for _, l := range batch {
+		if rs.baseline[l.Source] || !(l.Verdict == listing.Match || (l.Verdict == listing.Review && a.cfg.Notify.AlertOnReview)) {
+			continue
 		}
-		return nil
+		if rs.alerted >= a.cfg.Notify.MaxPerRun {
+			rs.overflow++
+			continue
+		}
+		msgs = append(msgs, alertMessage(l))
+		rs.alerted++
 	}
-	return a.alert(ctx, all)
+	if len(msgs) == 0 {
+		return
+	}
+	if err := a.notify.Send(ctx, msgs); err != nil {
+		log.Printf("alerts: %v", err) // listings are recorded; a failed alert isn't retried
+		return
+	}
+	log.Printf("alerted %d listing(s)", len(msgs))
+}
+
+// fetch runs one source, passing each listing to emit as soon as it is
+// fetched. A listing rejected under older criteria that is still online and
+// has stored data is re-evaluated from that data instead of being fetched
+// again ("revived"); the source only asks about listings it currently sees,
+// so gone listings are never re-checked.
+func (a *app) fetch(ctx context.Context, src sources.Source, emit func(*listing.Listing)) (revived int, err error) {
+	seen := func(key string) bool {
+		if a.store.Seen(key) {
+			return true
+		}
+		if !a.store.Known(key) {
+			return false // new listing
+		}
+		l, derr := listing.Decode(a.store.Data(ctx, key))
+		if derr != nil {
+			return false // no usable stored data: fetch it again
+		}
+		revived++
+		emit(l)
+		return true
+	}
+	err = src.Fetch(ctx, seen, emit)
+	return revived, err
 }
 
 func rank(v listing.Verdict) int {
@@ -230,35 +332,6 @@ func rank(v listing.Verdict) int {
 		return 1
 	}
 	return 2
-}
-
-func (a *app) alert(ctx context.Context, all []*listing.Listing) error {
-	var pick []*listing.Listing
-	for _, l := range all {
-		if l.Verdict == listing.Match || (l.Verdict == listing.Review && a.cfg.Notify.AlertOnReview) {
-			pick = append(pick, l)
-		}
-	}
-	if len(pick) == 0 {
-		return nil
-	}
-	var msgs []notify.Message
-	max := a.cfg.Notify.MaxPerRun
-	for i, l := range pick {
-		if i == max {
-			msgs = append(msgs, notify.Message{
-				Title: fmt.Sprintf("+%d more flats", len(pick)-max),
-				Body:  fmt.Sprintf("🏠 +%d more new flats – see the tracker sheet.", len(pick)-max),
-			})
-			break
-		}
-		msgs = append(msgs, alertMessage(l))
-	}
-	if err := a.notify.Send(ctx, msgs); err != nil {
-		return fmt.Errorf("alerts: %w", err)
-	}
-	log.Printf("alerted %d listing(s)", len(pick))
-	return nil
 }
 
 func fmtNum(v float64, unit string) string {
@@ -283,7 +356,10 @@ func alertMessage(l *listing.Listing) notify.Message {
 		loc = l.Address
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s · %s\n%s\n", head, l.Source, l.Title)
+	fmt.Fprintf(&b, "%s · %s\n%s\n", head, l.Source, l.DisplayTitle())
+	if l.PlusOnly {
+		b.WriteString("⭐ Plus-only: contact via your Plus account – fewer competitors\n")
+	}
 	fmt.Fprintf(&b, "💶 %s warm · %s · %s Zi\n", fmtNum(l.WarmRent, " €"), fmtNum(l.SizeM2, " m²"), fmtNum(l.Rooms, ""))
 	if c, ok := l.Check(listing.CritTransit); ok {
 		fmt.Fprintf(&b, "📍 %s · 🚇 %s\n", loc, shorten(c.Detail, 70))
@@ -297,10 +373,18 @@ func alertMessage(l *listing.Listing) notify.Message {
 		fmt.Fprintf(&b, "⚠️ unconfirmed: %s\n", u)
 	}
 	return notify.Message{
-		Title: fmt.Sprintf("%s %s warm, %s, %s", l.Source, fmtNum(l.WarmRent, "€"), fmtNum(l.SizeM2, "m2"), loc),
+		Title: fmt.Sprintf("%s%s %s warm, %s, %s", plusPrefix(l), l.Source, fmtNum(l.WarmRent, "€"), fmtNum(l.SizeM2, "m2"), loc),
 		Body:  strings.TrimSpace(b.String()),
 		URL:   l.URL,
 	}
+}
+
+// plusPrefix marks Plus-only listings in the push title (ASCII: ntfy headers).
+func plusPrefix(l *listing.Listing) string {
+	if l.PlusOnly {
+		return "[Plus] "
+	}
+	return ""
 }
 
 func shorten(s string, n int) string {
@@ -352,7 +436,7 @@ func sheetRow(l *listing.Listing) map[string]any {
 		loc = l.Address
 	}
 	return map[string]any{
-		"Status": "New", "Verdict": string(l.Verdict), "Title": l.Title, "Location": loc,
+		"Status": "New", "Verdict": string(l.Verdict), "Title": l.DisplayTitle(), "Location": loc,
 		"Warm rent €": numCell(l.WarmRent), "m²": numCell(l.SizeM2), "Rooms": numCell(l.Rooms),
 		"Available": availableCell(l), "Duration": cell(l, listing.CritDuration),
 		"Transit": cell(l, listing.CritTransit), "Balcony": cell(l, listing.CritBalcony),
@@ -360,6 +444,15 @@ func sheetRow(l *listing.Listing) map[string]any {
 		"Anmeldung": cell(l, listing.CritAnmeldung), "Needs checking": unknowns(l),
 		"Source": l.Source, "First seen": l.FirstSeen.Format("2006-01-02 15:04"), "Key": l.Key(),
 	}
+}
+
+// seenCells: the readable columns of the Seen tab, the same values as in
+// Listings (minus the user's Status/Notes).
+func seenCells(l *listing.Listing) map[string]any {
+	c := sheetRow(l)
+	delete(c, "Status")
+	delete(c, "Title") // Seen has its own plain Title
+	return c
 }
 
 // orderRow lays values out under the sheet's own header. Columns the bot

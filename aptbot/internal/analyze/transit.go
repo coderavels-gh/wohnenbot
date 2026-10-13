@@ -33,6 +33,8 @@ type TransitChecker struct {
 	geo     map[string]geoResult
 	nearby  map[string]map[string]string // "lat,lon" → mode → example stop
 	Offline bool                         // tests: text-only
+	server  int                          // index into overpassServers
+	osmDown error                        // every server failed this run: stop asking
 }
 
 func NewTransitChecker(client *web.Client, contactEmail string) *TransitChecker {
@@ -136,9 +138,7 @@ node(around:%[1]d,%[3]f,%[4]f)[public_transport=platform][bus=yes];
 node(around:%[2]d,%[3]f,%[4]f)[railway~"^(station|halt|stop)$"];
 node(around:%[2]d,%[3]f,%[4]f)[public_transport=station];
 );out tags;`, busR, railR, lat, lon)
-	body, err := t.client.Do(ctx, "POST", "https://overpass-api.de/api/interpreter",
-		[]byte("data="+url.QueryEscape(q)),
-		map[string]string{"User-Agent": t.ua, "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"})
+	body, err := t.overpass(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -182,6 +182,50 @@ func notInService(tags map[string]string) bool {
 	return false
 }
 
+// Public Overpass servers; the main one often answers 504 when busy.
+var overpassServers = []string{
+	"https://overpass-api.de/api/interpreter",
+	"https://overpass.private.coffee/api/interpreter",
+}
+
+// overpass runs a query, moving on to the next server when one fails and
+// staying there for the rest of the run.
+func (t *TransitChecker) overpass(ctx context.Context, q string) ([]byte, error) {
+	t.mu.Lock()
+	down := t.osmDown
+	t.mu.Unlock()
+	if down != nil {
+		return nil, down
+	}
+	var lastErr error
+	for tries := 0; tries < len(overpassServers); tries++ {
+		t.mu.Lock()
+		server := overpassServers[t.server%len(overpassServers)]
+		t.mu.Unlock()
+		body, err := t.client.Do(ctx, "POST", server, []byte("data="+url.QueryEscape(q)),
+			map[string]string{"User-Agent": t.ua, "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"})
+		if err == nil && json.Valid(body) {
+			return body, nil
+		}
+		if err == nil {
+			err = fmt.Errorf("non-JSON answer from %s", server)
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		lastErr = err
+		log.Printf("transit: %s failed, switching server: %.120v", server, err)
+		t.mu.Lock()
+		t.server++
+		t.mu.Unlock()
+	}
+	t.mu.Lock()
+	t.osmDown = fmt.Errorf("all Overpass servers failed this run, using listing text: %w", lastErr)
+	t.mu.Unlock()
+	log.Printf("transit: %v", t.osmDown)
+	return nil, lastErr
+}
+
 func classifyStop(tags map[string]string) []string {
 	var out []string
 	name := tags["name"]
@@ -210,6 +254,9 @@ func (t *TransitChecker) Check(ctx context.Context, l *listing.Listing, cr confi
 		if !precise && l.AddressPrecise && l.Address != "" {
 			g := t.geocode(ctx, l.Address)
 			lat, lon, precise = g.Lat, g.Lon, g.OK && g.Precise
+			if precise {
+				l.Lat, l.Lon = lat, lon // stored with the listing; a re-check needs no geocoding
+			}
 		}
 		if precise {
 			modes, err := t.stopsNear(ctx, lat, lon, cr.BusRadiusM, cr.RailRadiusM)

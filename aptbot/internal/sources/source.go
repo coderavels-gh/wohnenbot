@@ -13,8 +13,9 @@ import (
 // Source discovers listings and fetches details for the ones not seen yet.
 type Source interface {
 	Name() string
-	// Fetch returns detailed listings whose key (Source+":"+ID) is not seen.
-	Fetch(ctx context.Context, seen func(key string) bool) ([]*listing.Listing, error)
+	// Fetch passes each listing whose key (Source+":"+ID) is not seen to emit
+	// as soon as its details are fetched.
+	Fetch(ctx context.Context, seen func(key string) bool, emit func(*listing.Listing)) error
 }
 
 // furnishedAgencyDefaults: these agencies only list fully furnished flats.

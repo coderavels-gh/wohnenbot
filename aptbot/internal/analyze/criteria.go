@@ -161,6 +161,14 @@ func checkAnmeldung(text string) listing.Check {
 var (
 	durUnlimited = rx(`\bunbefristet`, `\bunbegrenzt`, `ohne befristung`, `auf unbestimmte zeit`, `long[- ]term`, `unlimited (?:contract|lease|rental)`, `langfristig zu vermieten`, `langfristige vermietung`)
 	durMax       = regexp.MustCompile(`(?i)(?:maximale\s+miet(?:zeit|dauer)|höchstmietdauer|max(?:imal|\.)?\s*miet(?:zeit|dauer)|mietdauer\s*(?:max(?:imal|\.)?|bis)|befristet\s+(?:auf|für))\s*:?\s*(?:ca\.?\s*)?(\d{1,3})\s*(kalendermonat|monat|jahr|woche|tag|month|year|week|day)`)
+	// "Untermiete ab Nov. für 3-6 Monate", "Mietdauer: 6–12 Monate". The unit
+	// must end the word, so "3 Monatsmieten Kaution" doesn't count.
+	durSpan = regexp.MustCompile(`(?i)(?:\bfür|mietdauer|mietzeit|zeitraum|vermietung)\s*:?\s*(?:ca\.?\s*)?(\d{1,2})\s*(?:-|–|bis)\s*(\d{1,2})\s*(monat|jahr|woche)(?:e|en)?\b`)
+	// "Zwischenmiete für 6 Monate": a single length, only next to a word that
+	// says the rental is temporary.
+	durTempFor = regexp.MustCompile(`(?i)(?:untermiete|zwischenmiete|befristet|zeitmiete|auf zeit)[^.\n]{0,80}?\bfür\s+(?:ca\.?\s*)?(\d{1,2})\s*(monat|jahr|woche)(?:e|en)?\b`)
+	// "Der Mietvertrag wird auf 5 Jahre befristet"
+	durMaxAfter  = regexp.MustCompile(`(?i)(?:auf|für)\s+(?:ca\.?\s*)?(\d{1,3})\s*(kalendermonat|monat|jahr|woche|tag)\w*\s+befristet`)
 	durUntil     = regexp.MustCompile(`(?i)befristet\s+bis\s*(?:zum\s*)?(\d{1,2}\.\d{1,2}\.\d{4})`)
 	durRange     = regexp.MustCompile(`(\d{1,2}\.\d{1,2}\.\d{4})\s*(?:bis|-|–)\s*(\d{1,2}\.\d{1,2}\.\d{4})`)
 	durTemporary = rx(`\bbefristet`, `zeitmietvertrag`, `wohnen auf zeit`, `zwischenmiete`, `untermiete`, `vorübergehend`, `temporary`, `sublet`)
@@ -197,6 +205,18 @@ func checkDuration(text string, minMonths int, leaseStart time.Time) listing.Che
 		n, _ := ParseGermanNumber(text[m[2]:m[3]])
 		return verdict(unitToMonths(n, text[m[4]:m[5]]), Snippet(text, m[0], m[1]))
 	}
+	if m := durSpan.FindStringSubmatchIndex(text); m != nil {
+		n, _ := ParseGermanNumber(text[m[4]:m[5]]) // upper bound of "3-6 Monate"
+		return verdict(unitToMonths(n, text[m[6]:m[7]]), Snippet(text, m[0], m[1]))
+	}
+	if m := durTempFor.FindStringSubmatchIndex(text); m != nil {
+		n, _ := ParseGermanNumber(text[m[2]:m[3]])
+		return verdict(unitToMonths(n, text[m[4]:m[5]]), Snippet(text, m[0], m[1]))
+	}
+	if m := durMaxAfter.FindStringSubmatchIndex(text); m != nil {
+		n, _ := ParseGermanNumber(text[m[2]:m[3]])
+		return verdict(unitToMonths(n, text[m[4]:m[5]]), Snippet(text, m[0], m[1]))
+	}
 	if m := durUntil.FindStringSubmatchIndex(text); m != nil {
 		if end, ok := ParseDate(text[m[2]:m[3]]); ok {
 			return verdict(MonthsBetween(now, end), Snippet(text, m[0], m[1]))
@@ -221,6 +241,29 @@ func checkDuration(text string, minMonths int, leaseStart time.Time) listing.Che
 		return c
 	}
 	c.Detail = "not mentioned"
+	return c
+}
+
+// ---- WBS -------------------------------------------------------------------
+// Social housing reserved for holders of a Wohnberechtigungsschein. Always
+// checked; a listing that doesn't mention it passes (never "?").
+
+var (
+	wbsNeg = rx(`\b(?:kein|ohne)(?:en)?\s+(?:wbs|wohnberechtigungsschein)`, `(?:wbs|wohnberechtigungsschein)\s+(?:ist\s+)?nicht\s+(?:erforderlich|notwendig|nötig|benötigt)`)
+	wbsReq = rx(`\bnur\s+(?:mit|für|gegen)\s+(?:einem\s+|gültigem\s+|gültigen\s+)?(?:wbs|wohnberechtigungsschein)`,
+		`(?:wbs|wohnberechtigungsschein)[^.\n]{0,30}(?:erforderlich|notwendig|benötigt|zwingend|vorausgesetzt|voraussetzung|muss vorliegen|vorhanden sein)`,
+		`(?:wbs|wohnberechtigungsschein)[- ]?(?:pflichtig|gebunden)`, `\bwbs\s*(?:§|para)`, `\bwbs\s*:\s*(?:ja|erforderlich)`,
+		`(?:mit|gegen)\s+(?:wbs|wohnberechtigungsschein)\b`, `öffentlich\s+geförderte?\s+wohnung`, `sozialwohnung`)
+)
+
+func checkWBS(text string) listing.Check {
+	c := listing.Check{Name: listing.CritWBS, Result: listing.Pass, Detail: "no WBS requirement"}
+	if _, ok := firstMatch(text, wbsNeg); ok {
+		return c
+	}
+	if ev, ok := firstMatch(text, wbsReq); ok {
+		c.Result, c.Detail = listing.Fail, "needs a WBS (social housing): "+ev
+	}
 	return c
 }
 
@@ -252,7 +295,7 @@ func checkMoveIn(l *listing.Listing, from, to, now time.Time) listing.Check {
 	case av == "":
 		c.Detail = "move-in date not stated"
 		return c
-	case strings.Contains(lav, "vereinbarung"):
+	case strings.Contains(lav, "vereinbarung"), strings.Contains(lav, "absprache"):
 		c.Detail = "available by arrangement – ask about " + window
 		return c
 	case strings.Contains(lav, "sofort"):
@@ -280,9 +323,12 @@ func checkMoveIn(l *listing.Listing, from, to, now time.Time) listing.Check {
 
 // ---- Evaluation ------------------------------------------------------------
 
-// RulesVersion is part of the criteria fingerprint. Bump it when a change to
-// the evaluation code should re-check listings rejected under the old rules.
-const RulesVersion = 3
+// RulesVersion is part of the criteria fingerprint. Bump it only when a change
+// to the evaluation code could turn a rejection into a pass: a bump makes the
+// next run re-check every rejected listing that is still online (re-reading
+// all result pages, and fetching any listing stored without Data). A change
+// that only makes the rules stricter needs no bump.
+const RulesVersion = 4
 
 // Fingerprint identifies a set of criteria plus the rules applying them.
 func Fingerprint(cr config.Criteria) string {
@@ -365,6 +411,7 @@ func (e *Evaluator) Evaluate(ctx context.Context, l *listing.Listing) {
 	if cr.RequireAnmeldung {
 		checks = append(checks, checkAnmeldung(text))
 	}
+	checks = append(checks, checkWBS(text))
 	// Apply site-level knowledge where the listing text was silent.
 	for i, c := range checks {
 		if c.Result != listing.Unknown {

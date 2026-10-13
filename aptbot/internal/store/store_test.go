@@ -14,9 +14,9 @@ func TestRejectedReevaluatedWhenCriteriaChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := f.Add(ctx, []Record{
-		{Key: "a", Verdict: "REJECT", Criteria: "old"},
-		{Key: "b", Verdict: "REVIEW", Criteria: "old"},
-		{Key: "c", Verdict: "MATCH", Criteria: "old"},
+		{Key: "X:a", Verdict: "REJECT", Criteria: "old"},
+		{Key: "X:b", Verdict: "REVIEW", Criteria: "old"},
+		{Key: "X:c", Verdict: "MATCH", Criteria: "old"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestRejectedReevaluatedWhenCriteriaChange(t *testing.T) {
 	if err := same.Load(ctx); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"a", "b", "c"} {
+	for _, k := range []string{"X:a", "X:b", "X:c"} {
 		if !same.Seen(k) {
 			t.Errorf("same criteria: %s should be skipped", k)
 		}
@@ -35,13 +35,16 @@ func TestRejectedReevaluatedWhenCriteriaChange(t *testing.T) {
 	if err := changed.Load(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if changed.Seen("a") {
+	if changed.Seen("X:a") {
 		t.Error("rejected listing should be re-evaluated after the criteria change")
 	}
-	if !changed.Seen("b") || !changed.Seen("c") {
+	if !changed.Seen("X:b") || !changed.Seen("X:c") {
 		t.Error("listings already in the tracker should not be re-evaluated")
 	}
 	if changed.Seen("unknown") {
 		t.Error("unknown key reported as seen")
+	}
+	if same.NeedsRecheck("X") || !changed.NeedsRecheck("X") || changed.NeedsRecheck("Y") {
+		t.Error("NeedsRecheck should be true only after the criteria change")
 	}
 }

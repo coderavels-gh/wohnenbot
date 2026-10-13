@@ -35,14 +35,14 @@ func (h *HomeCompany) pageURL(n int) string {
 	return fmt.Sprintf("%s%spg=%d", h.Cfg.ListURL, sep, n)
 }
 
-func (h *HomeCompany) Fetch(ctx context.Context, seen func(string) bool) ([]*listing.Listing, error) {
+func (h *HomeCompany) Fetch(ctx context.Context, seen func(string) bool, emit func(*listing.Listing)) error {
 	var detailURLs []string
 	known := map[string]bool{}
 	for p := 1; p <= h.Cfg.MaxPages; p++ {
 		body, err := h.Client.Get(ctx, h.pageURL(p), nil)
 		if err != nil {
 			if p == 1 {
-				return nil, err
+				return err
 			}
 			logf(h.Name(), "page %d: %v", p, err)
 			break
@@ -62,7 +62,6 @@ func (h *HomeCompany) Fetch(ctx context.Context, seen func(string) bool) ([]*lis
 	}
 	logf(h.Name(), "%d listings on index", len(detailURLs))
 
-	var out []*listing.Listing
 	for _, u := range detailURLs {
 		id := reHCDetail.FindStringSubmatch(u)[1]
 		if seen(h.Name() + ":" + id) {
@@ -75,9 +74,9 @@ func (h *HomeCompany) Fetch(ctx context.Context, seen func(string) bool) ([]*lis
 		}
 		l := ParseHomeCompanyDetail(string(body))
 		l.ID, l.URL = id, u
-		out = append(out, l)
+		emit(l)
 	}
-	return out, nil
+	return nil
 }
 
 var (

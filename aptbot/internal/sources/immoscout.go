@@ -24,7 +24,15 @@ import (
 type ImmoScout struct {
 	Client *web.Client
 	Cfg    config.ImmoScoutConfig
+	// FullScan reads every result page instead of only the newest one. Set
+	// for the first run, to record the listings already online as a baseline.
+	FullScan bool
 }
+
+// maxPages caps a full scan (50 per page) in case a search is far too broad.
+const isMaxPages = 40
+
+func (s *ImmoScout) SetFullScan(full bool) { s.FullScan = full }
 
 func (s *ImmoScout) Name() string { return "ImmoScout24" }
 
@@ -45,6 +53,11 @@ var isTypes = map[string]string{
 	"haus-mieten":    "houserent",
 	"wohnung-kaufen": "apartmentbuy",
 	"haus-kaufen":    "housebuy",
+	// English site (/en/search/...)
+	"apartments-for-rent": "apartmentrent",
+	"houses-for-rent":     "houserent",
+	"apartments-for-sale": "apartmentbuy",
+	"houses-for-sale":     "housebuy",
 }
 
 // SearchURLToAPI converts a website search URL to a mobile-API list URL.
@@ -57,8 +70,11 @@ func SearchURLToAPI(webURL string) (string, error) {
 		return "", err
 	}
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) < 3 || !strings.EqualFold(parts[0], "Suche") {
-		return "", fmt.Errorf("not an ImmoScout search URL (expected /Suche/...): %s", webURL)
+	if len(parts) > 0 && strings.EqualFold(parts[0], "en") {
+		parts = parts[1:]
+	}
+	if len(parts) < 3 || !(strings.EqualFold(parts[0], "Suche") || strings.EqualFold(parts[0], "search")) {
+		return "", fmt.Errorf("not an ImmoScout search URL (expected /Suche/... or /en/search/...): %s", webURL)
 	}
 	typ := strings.ToLower(parts[len(parts)-1])
 	apiType, ok := isTypes[typ]
@@ -67,6 +83,7 @@ func SearchURLToAPI(webURL string) (string, error) {
 	}
 	q := u.Query()
 	q.Del("enteredFrom")
+	q.Del("osmtags") // the website's transit filter; the app API ignores it
 	q.Set("realestatetype", apiType)
 	if parts[1] == "radius" {
 		q.Set("searchType", "radius")
@@ -75,9 +92,9 @@ func SearchURLToAPI(webURL string) (string, error) {
 		q.Set("geocodes", "/"+strings.Join(parts[1:len(parts)-1], "/"))
 	}
 	q.Set("pagesize", "50")
-	if q.Get("sorting") == "" {
-		q.Set("sorting", "2") // newest first
-	}
+	// Only the first page is read, so results must be newest first. The app
+	// API rejects the website's numeric sorting values (sorting=2 → HTTP 412).
+	q.Set("sorting", "-firstactivation")
 	return isAPIBase + "/search/list?" + q.Encode(), nil
 }
 
@@ -100,16 +117,23 @@ type isItem struct {
 	Address    string
 	Lat, Lon   float64
 	Attributes []string
+	PlusOnly   bool // tagged "paywall": contact restricted to Plus members
 	Raw        map[string]any
 }
 
-func (s *ImmoScout) list(ctx context.Context, apiURL string) ([]isItem, error) {
+// list returns one page of results and the total number of pages.
+func (s *ImmoScout) list(ctx context.Context, apiURL string, page int) ([]isItem, int, error) {
 	body := []byte(`{"supportedResultListType":[],"userData":{}}`)
-	data, err := s.Client.Do(ctx, "POST", apiURL, body, isHeaders)
+	data, err := s.Client.Do(ctx, "POST", fmt.Sprintf("%s&pagenumber=%d", apiURL, page), body, isHeaders)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return ParseImmoScoutList(data)
+	var pages struct {
+		NumberOfPages int `json:"numberOfPages"`
+	}
+	json.Unmarshal(data, &pages)
+	items, err := ParseImmoScoutList(data)
+	return items, pages.NumberOfPages, err
 }
 
 // ParseImmoScoutList parses the mobile-API search response.
@@ -131,6 +155,14 @@ func ParseImmoScoutList(data []byte) ([]isItem, error) {
 		it := isItem{Raw: e.Item}
 		it.ID = fmt.Sprint(e.Item["id"])
 		it.Title, _ = e.Item["title"].(string)
+		it.PlusOnly, _ = e.Item["paywallListing"].(bool)
+		if tags, ok := e.Item["tags"].([]any); ok {
+			for _, t := range tags {
+				if m, ok := t.(map[string]any); ok && m["tag"] == "paywall" {
+					it.PlusOnly = true
+				}
+			}
+		}
 		if addr, ok := e.Item["address"].(map[string]any); ok {
 			it.Address, _ = addr["line"].(string)
 			it.Lat = numField(addr, "lat", "latitude")
@@ -248,7 +280,7 @@ var (
 func BuildImmoScoutListing(it isItem, expose []byte) *listing.Listing {
 	l := &listing.Listing{
 		Source: "ImmoScout24", ID: it.ID, URL: isExposeWS + it.ID,
-		Title: it.Title, Address: it.Address, Lat: it.Lat, Lon: it.Lon,
+		Title: it.Title, Address: it.Address, Lat: it.Lat, Lon: it.Lon, PlusOnly: it.PlusOnly,
 	}
 	l.AddressPrecise = reISStreet.MatchString(it.Address) || it.Lat != 0
 	if m := reISDistrict.FindStringSubmatch(it.Address); m != nil && len(m) > 1 {
@@ -289,6 +321,7 @@ func BuildImmoScoutListing(it isItem, expose []byte) *listing.Listing {
 	}
 	l.AvailableFrom = analyze.FindAvailableFrom(l.Text)
 	l.Furnished = reISFurnished.MatchString(l.Text) && !reISUnfurnished.MatchString(l.Text)
+	l.StrictStart = true // flats free before the move-in window are rejected
 	if !reISTemporary.MatchString(l.Text) {
 		// A normal (unfurnished, open-ended) German lease: Anmeldung is a legal
 		// right and the contract is unlimited unless the ad says otherwise.
@@ -298,24 +331,35 @@ func BuildImmoScoutListing(it isItem, expose []byte) *listing.Listing {
 	return l
 }
 
-func (s *ImmoScout) Fetch(ctx context.Context, seen func(string) bool) ([]*listing.Listing, error) {
+func (s *ImmoScout) Fetch(ctx context.Context, seen func(string) bool, emit func(*listing.Listing)) error {
 	urls := s.apiURLs()
 	if len(urls) == 0 {
-		return nil, fmt.Errorf("no search_urls configured")
+		return fmt.Errorf("no search_urls configured")
 	}
-	var out []*listing.Listing
+	emitted := 0
 	known := map[string]bool{}
 	var firstErr error
 	for _, u := range urls {
-		items, err := s.list(ctx, u)
-		if err != nil {
-			logf(s.Name(), "search: %v", err)
-			if firstErr == nil {
-				firstErr = err
+		var items []isItem
+		for page := 1; page <= isMaxPages; page++ {
+			got, pages, err := s.list(ctx, u, page)
+			if err != nil {
+				logf(s.Name(), "search page %d: %v", page, err)
+				if firstErr == nil && page == 1 {
+					firstErr = err
+				}
+				break
 			}
-			continue
+			items = append(items, got...)
+			if !s.FullScan || page >= pages || len(got) == 0 {
+				break
+			}
 		}
-		logf(s.Name(), "%d listings in search", len(items))
+		if s.FullScan {
+			logf(s.Name(), "full scan (first run): %d listings in search", len(items))
+		} else {
+			logf(s.Name(), "%d listings on the newest page", len(items))
+		}
 		for _, it := range items {
 			if known[it.ID] || seen(s.Name()+":"+it.ID) {
 				continue
@@ -323,17 +367,19 @@ func (s *ImmoScout) Fetch(ctx context.Context, seen func(string) bool) ([]*listi
 			known[it.ID] = true
 			var expose []byte
 			if s.Cfg.FetchExpose {
+				var err error
 				expose, err = s.Client.Get(ctx, isAPIBase+"/expose/"+it.ID, isHeaders)
 				if err != nil {
 					logf(s.Name(), "expose %s: %v (using list data only)", it.ID, err)
 					expose = nil
 				}
 			}
-			out = append(out, BuildImmoScoutListing(it, expose))
+			emit(BuildImmoScoutListing(it, expose))
+			emitted++
 		}
 	}
-	if len(out) == 0 && firstErr != nil {
-		return nil, firstErr
+	if emitted == 0 && firstErr != nil {
+		return firstErr
 	}
-	return out, nil
+	return nil
 }

@@ -116,7 +116,7 @@ func FindRooms(text string) float64 {
 	return 0
 }
 
-var reDate = regexp.MustCompile(`(\d{1,2})\.(\d{1,2})\.(\d{4})`)
+var reDate = regexp.MustCompile(`(\d{1,2})\.(\d{1,2})\.(\d{4}|\d{2}\b)`)
 
 func ParseDate(s string) (time.Time, bool) {
 	m := reDate.FindStringSubmatch(s)
@@ -126,6 +126,9 @@ func ParseDate(s string) (time.Time, bool) {
 	d, _ := strconv.Atoi(m[1])
 	mo, _ := strconv.Atoi(m[2])
 	y, _ := strconv.Atoi(m[3])
+	if y < 100 {
+		y += 2000 // "21.10.26"
+	}
 	if mo < 1 || mo > 12 || d < 1 || d > 31 {
 		return time.Time{}, false
 	}
@@ -166,7 +169,9 @@ func Snippet(text string, start, end int) string {
 
 func utf8Start(b byte) bool { return b&0xC0 != 0x80 }
 
-var reAvailable = regexp.MustCompile(`(?i)(?:bezugsfrei\s+ab|bezugsfertig\s+ab|frei\s+ab|verfügbar\s+ab|einzug\s+ab|einzugstermin|bezugstermin|available\s+from)\s*:?\s*(?:dem\s+|zum\s+)?(\d{1,2}\.\d{1,2}\.\d{4}|sofort|nach\s+vereinbarung)`)
+// ImmoScout's label already ends in ":", so its flattened text reads
+// "Bezugsfrei ab:: 1.1.2027"; hence [\s:]*.
+var reAvailable = regexp.MustCompile(`(?i)(?:bezugsfrei\s+ab|bezugsfertig\s+ab|frei\s+ab|verfügbar\s+ab|einzug\s+ab|einzugstermin|bezugstermin|available\s+from)[\s:]*(?:dem\s+|zum\s+|ab\s+)?(\d{1,2}\.\d{1,2}\.(?:\d{4}|\d{2}\b)|sofort|nach\s+(?:vereinbarung|absprache))`)
 
 // FindAvailableFrom returns the move-in date as written ("01.12.2026",
 // "sofort", "nach Vereinbarung"), or "" if the text doesn't say.
