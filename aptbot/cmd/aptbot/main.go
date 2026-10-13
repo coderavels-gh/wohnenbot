@@ -52,6 +52,7 @@ type app struct {
 	loc     *time.Location
 
 	criteria string // fingerprint stored with each Seen record
+	transit  *analyze.TransitChecker
 }
 
 func main() {
@@ -111,7 +112,9 @@ func main() {
 		log.Fatal("no sources enabled")
 	}
 	a.criteria = analyze.Fingerprint(cfg.Criteria)
-	a.eval = &analyze.Evaluator{Criteria: cfg.Criteria, Transit: analyze.NewTransitChecker(client, cfg.ContactEmail)}
+	a.transit = analyze.NewTransitChecker(client, cfg.ContactEmail)
+	a.transit.LoadCache(cfg.TransitCacheFile)
+	a.eval = &analyze.Evaluator{Criteria: cfg.Criteria, Transit: a.transit}
 
 	if cfg.Sheets != nil && cfg.Sheets.SpreadsheetID != "" {
 		a.sheet, err = sheets.New(cfg.Sheets.CredentialsFile, cfg.Sheets.SpreadsheetID)
@@ -212,6 +215,11 @@ func (a *app) run(ctx context.Context) error {
 		}
 		if err := a.notify.Send(ctx, []notify.Message{msg}); err != nil {
 			log.Printf("alerts: %v", err)
+		}
+	}
+	if a.transit != nil {
+		if err := a.transit.SaveCache(a.cfg.TransitCacheFile); err != nil {
+			log.Printf("transit: saving cache: %v", err)
 		}
 	}
 	n := rs.counts[listing.Match] + rs.counts[listing.Review] + rs.counts[listing.Reject]

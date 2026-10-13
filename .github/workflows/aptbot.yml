@@ -1,14 +1,19 @@
-# Optional free cloud runner (private GitHub repo, ~1 min per run).
-# State lives in the Google Sheet, so runs need no local storage.
-# Caveat: GitHub runs on datacenter IPs; ImmoScout may block those. The two
-# agency sites work fine. Your Mac (home IP) is the more reliable ImmoScout runner.
+# Free cloud runner (GitHub Actions). State lives in the Google Sheet, so runs
+# need no storage of their own; only the OpenStreetMap lookup cache is carried
+# between runs (actions/cache), and losing it is harmless.
 #
-# Repo secrets needed: APTBOT_CONFIG (whole config.json),
-# GOOGLE_SA_JSON (service-account key), CALLMEBOT_KEY_person1, CALLMEBOT_KEY_2
+# Repo secrets (Settings → Secrets and variables → Actions):
+#   APTBOT_CONFIG   the whole aptbot/config.json
+#   GOOGLE_SA_JSON  the service-account key (aptbot/secrets/service-account.json)
+# Until both are set, runs are skipped (no failure emails).
+#
+# Caveat: GitHub runs on datacenter IPs; ImmoScout may block those. If it
+# does, the bot stops asking ImmoScout for that run (403/429) and the other
+# sites still work.
 name: aptbot
 on:
   schedule:
-    - cron: "7,37 * * * *" # every 30 min (GitHub may delay scheduled runs by a few minutes)
+    - cron: "7 * * * *" # hourly (2,000 free minutes/month on a private repo); GitHub may start runs late
   workflow_dispatch: {}
 concurrency: aptbot
 jobs:
@@ -19,10 +24,33 @@ jobs:
       run:
         working-directory: aptbot
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - name: Check secrets
+        id: secrets
+        env:
+          APTBOT_CONFIG: ${{ secrets.APTBOT_CONFIG }}
+          GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
+        working-directory: .
+        run: |
+          if [ -z "$APTBOT_CONFIG" ] || [ -z "$GOOGLE_SA_JSON" ]; then
+            echo "::notice::APTBOT_CONFIG / GOOGLE_SA_JSON secrets not set, skipping this run"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.secrets.outputs.ok == 'true'
+        uses: actions/checkout@v4
+      - if: steps.secrets.outputs.ok == 'true'
+        uses: actions/setup-go@v5
         with: { go-version-file: aptbot/go.mod, cache: false }
-      - name: Write config
+      - if: steps.secrets.outputs.ok == 'true'
+        name: Restore OpenStreetMap cache
+        uses: actions/cache/restore@v4
+        with:
+          path: aptbot/data/transit-cache.json
+          key: transit-cache-${{ github.run_id }}
+          restore-keys: transit-cache-
+      - if: steps.secrets.outputs.ok == 'true'
+        name: Write config
         env:
           APTBOT_CONFIG: ${{ secrets.APTBOT_CONFIG }}
           GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
@@ -30,8 +58,14 @@ jobs:
           mkdir -p secrets
           printf '%s' "$APTBOT_CONFIG" > config.json
           printf '%s' "$GOOGLE_SA_JSON" > secrets/service-account.json
-      - name: Run
-        env:
-          CALLMEBOT_KEY_person1: ${{ secrets.CALLMEBOT_KEY_person1 }}
-          CALLMEBOT_KEY_2: ${{ secrets.CALLMEBOT_KEY_2 }}
-        run: go run ./cmd/aptbot -once -config config.json
+      - if: steps.secrets.outputs.ok == 'true'
+        name: Run
+        run: |
+          go build -o aptbot ./cmd/aptbot
+          ./aptbot -once -config config.json
+      - if: always() && steps.secrets.outputs.ok == 'true'
+        name: Save OpenStreetMap cache
+        uses: actions/cache/save@v4
+        with:
+          path: aptbot/data/transit-cache.json
+          key: transit-cache-${{ github.run_id }}

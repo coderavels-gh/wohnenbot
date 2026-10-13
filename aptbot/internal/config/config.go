@@ -17,6 +17,9 @@ type Config struct {
 	RequestDelayMs  int    `json:"request_delay_ms"`
 	ContactEmail    string `json:"contact_email"` // sent in the User-Agent to OpenStreetMap (their usage policy asks for it)
 	StateFile       string `json:"state_file"`    // used only when Google Sheets is not configured
+	// Local cache of OpenStreetMap lookups (stops near a point, geocoded
+	// addresses), kept between runs. Not state: deleting it is harmless.
+	TransitCacheFile string `json:"transit_cache_file"`
 
 	Criteria Criteria      `json:"criteria"`
 	Sources  Sources       `json:"sources"`
@@ -170,6 +173,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.StateFile == "" {
 		c.StateFile = "data/seen.json"
+	}
+	if c.TransitCacheFile == "" {
+		c.TransitCacheFile = "data/transit-cache.json"
 	}
 	cr := &c.Criteria
 	if cr.MinTransitModes == 0 {

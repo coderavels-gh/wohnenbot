@@ -19,7 +19,7 @@
   <key>WorkingDirectory</key><string>__DIR__</string>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>CALLMEBOT_KEY_person1</key><string>__KEY_H__</string>
+    <key>CALLMEBOT_KEY_1</key><string>__KEY_H__</string>
     <key>CALLMEBOT_KEY_2</key><string>__KEY_R__</string>
   </dict>
   <key>StartInterval</key><integer>1800</integer>

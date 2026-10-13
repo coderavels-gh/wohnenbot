@@ -52,7 +52,7 @@ You can restyle, reorder or add columns in **Listings** freely. The bot reads th
 ### 2. WhatsApp via CallMeBot (each of you does this once)
 1. Open <https://www.callmebot.com/blog/free-api-whatsapp-messages/> and save the WhatsApp number shown there as a contact. CallMeBot changes it occasionally, so take it from the page rather than an old guide.
 2. Send it this WhatsApp message: `I allow callmebot to send me messages`
-3. It replies with your **apikey**. Put it in an environment variable: `CALLMEBOT_KEY_person1` for you, `CALLMEBOT_KEY_2` for the second person.
+3. It replies with your **apikey**. Put it in an environment variable: `CALLMEBOT_KEY_1` for the first person, `CALLMEBOT_KEY_2` for the second.
 
 ### 3. Push fallback (recommended, free)
 Install the **ntfy** app on your iPhone, and optionally on your Mac or at ntfy.sh in a browser. Subscribe to a long random topic name, for example `hh-flats-8f3k2q9x`, and put the same name in `notify.ntfy.topic`. Anyone who knows the topic can read it, so keep it unguessable. If you want push notifications as well as WhatsApp, set `"always": true`.
@@ -67,7 +67,7 @@ Because these filters run on ImmoScout's side, you get fewer and better results.
 ```bash
 cd aptbot
 cp config.example.json config.json   # then fill it in
-export CALLMEBOT_KEY_person1=… CALLMEBOT_KEY_2=…
+export CALLMEBOT_KEY_1=… CALLMEBOT_KEY_2=…   # only if you use WhatsApp
 
 go run ./cmd/aptbot -test-alert                    # does WhatsApp arrive?
 go run ./cmd/aptbot -once -dry-run -only citywohnen   # see what each scraper extracts

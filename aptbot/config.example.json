@@ -53,7 +53,7 @@
     "alert_on_review": true,
     "max_per_run": 8,
     "whatsapp": [
-      { "name": "person1", "phone": "+49XXXXXXXXXX", "apikey": "${CALLMEBOT_KEY_person1}" },
+      { "name": "Person 1", "phone": "+49XXXXXXXXXX", "apikey": "${CALLMEBOT_KEY_1}" },
       { "name": "Person 2", "phone": "+49XXXXXXXXXX", "apikey": "${CALLMEBOT_KEY_2}" }
     ],
     "ntfy": { "server": "https://ntfy.sh", "topic": "CHANGE-ME-random-long-topic-name", "always": false },

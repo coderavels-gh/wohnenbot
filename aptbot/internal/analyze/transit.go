@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"aptbot/internal/config"
 	"aptbot/internal/listing"
@@ -31,10 +34,11 @@ type TransitChecker struct {
 	ua      string
 	mu      sync.Mutex
 	geo     map[string]geoResult
-	nearby  map[string]map[string]string // "lat,lon" → mode → example stop
-	Offline bool                         // tests: text-only
-	server  int                          // index into overpassServers
-	osmDown error                        // every server failed this run: stop asking
+	nearby  map[string]stopsResult // "lat,lon,busR,railR" → modes found
+	dirty   bool                   // cache changed since LoadCache
+	Offline bool                   // tests: text-only
+	server  int                    // index into overpassServers
+	osmDown error                  // every server failed this run: stop asking
 }
 
 func NewTransitChecker(client *web.Client, contactEmail string) *TransitChecker {
@@ -42,7 +46,76 @@ func NewTransitChecker(client *web.Client, contactEmail string) *TransitChecker 
 	if contactEmail != "" {
 		ua += " " + contactEmail
 	}
-	return &TransitChecker{client: client, ua: ua, geo: map[string]geoResult{}, nearby: map[string]map[string]string{}}
+	return &TransitChecker{client: client, ua: ua, geo: map[string]geoResult{}, nearby: map[string]stopsResult{}}
+}
+
+// ---- persistent cache --------------------------------------------------------
+// Stops and addresses rarely change, so lookups are kept between runs in a
+// local file. Most flats are near places looked up before, which saves most
+// OpenStreetMap requests. A missing or unreadable file just means an empty cache.
+
+const (
+	stopsTTL = 90 * 24 * time.Hour
+	geoTTL   = 180 * 24 * time.Hour
+)
+
+type cacheFile struct {
+	Geo   map[string]geoResult   `json:"geo"`
+	Stops map[string]stopsResult `json:"stops"`
+}
+
+// LoadCache reads the cache file, dropping expired entries.
+func (t *TransitChecker) LoadCache(path string) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var cf cacheFile
+	if json.Unmarshal(raw, &cf) != nil {
+		log.Printf("transit: ignoring unreadable cache %s", path)
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for k, g := range cf.Geo {
+		if time.Since(g.At) < geoTTL {
+			t.geo[k] = g
+		}
+	}
+	for k, s := range cf.Stops {
+		if time.Since(s.At) < stopsTTL {
+			t.nearby[k] = s
+		}
+	}
+}
+
+// SaveCache writes the cache file if anything was added.
+func (t *TransitChecker) SaveCache(path string) error {
+	t.mu.Lock()
+	if !t.dirty {
+		t.mu.Unlock()
+		return nil
+	}
+	raw, err := json.Marshal(cacheFile{Geo: t.geo, Stops: t.nearby})
+	t.dirty = false
+	t.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// stopsKey rounds to 3 decimals (~110 m × 70 m in Hamburg): close enough for
+// 400–1000 m radii, and nearby flats share an entry.
+func stopsKey(lat, lon float64, busR, railR int) string {
+	return fmt.Sprintf("%.3f,%.3f,%d,%d", lat, lon, busR, railR)
 }
 
 // ---- text-based ------------------------------------------------------------
@@ -85,6 +158,12 @@ type geoResult struct {
 	Lat, Lon float64
 	Precise  bool
 	OK       bool
+	At       time.Time // when it was looked up (persistent cache)
+}
+
+type stopsResult struct {
+	Modes map[string]string // mode → example stop
+	At    time.Time
 }
 
 func (t *TransitChecker) geocode(ctx context.Context, q string) geoResult {
@@ -119,17 +198,19 @@ func (t *TransitChecker) geocode(ctx context.Context, q string) geoResult {
 		}
 	}
 	t.mu.Lock()
+	res.At = time.Now()
 	t.geo[q] = res
+	t.dirty = true
 	t.mu.Unlock()
 	return res
 }
 
 func (t *TransitChecker) stopsNear(ctx context.Context, lat, lon float64, busR, railR int) (map[string]string, error) {
-	key := fmt.Sprintf("%.4f,%.4f,%d,%d", lat, lon, busR, railR)
+	key := stopsKey(lat, lon, busR, railR)
 	t.mu.Lock()
 	if m, ok := t.nearby[key]; ok {
 		t.mu.Unlock()
-		return m, nil
+		return m.Modes, nil
 	}
 	t.mu.Unlock()
 	q := fmt.Sprintf(`[out:json][timeout:25];(
@@ -162,7 +243,8 @@ node(around:%[2]d,%[3]f,%[4]f)[public_transport=station];
 		}
 	}
 	t.mu.Lock()
-	t.nearby[key] = modes
+	t.nearby[key] = stopsResult{Modes: modes, At: time.Now()}
+	t.dirty = true
 	t.mu.Unlock()
 	return modes, nil
 }
