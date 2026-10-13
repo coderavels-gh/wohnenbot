@@ -14,7 +14,12 @@ name: aptbot
 on:
   schedule:
     - cron: "7 * * * *" # hourly (2,000 free minutes/month on a private repo); GitHub may start runs late
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      test_alert:
+        description: "Only send a test notification (checks ntfy from the cloud)"
+        type: boolean
+        default: false
 concurrency: aptbot
 jobs:
   scout:
@@ -62,7 +67,11 @@ jobs:
         name: Run
         run: |
           go build -o aptbot ./cmd/aptbot
-          ./aptbot -once -config config.json
+          if [ "${{ inputs.test_alert }}" = "true" ]; then
+            ./aptbot -test-alert -config config.json
+          else
+            ./aptbot -once -config config.json
+          fi
       - if: always() && steps.secrets.outputs.ok == 'true'
         name: Save OpenStreetMap cache
         uses: actions/cache/save@v4
