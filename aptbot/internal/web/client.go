@@ -38,7 +38,7 @@ type Client struct {
 
 func NewClient(delay time.Duration) *Client {
 	return &Client{
-		http:         &http.Client{Timeout: 40 * time.Second},
+		http:         &http.Client{}, // timeouts are per request (defaultTimeout, HostTimeout)
 		delay:        delay,
 		HostDelay:    map[string]time.Duration{},
 		HostTimeout:  map[string]time.Duration{},
@@ -65,6 +65,9 @@ func inflate(data []byte) ([]byte, error) {
 	defer r.Close()
 	return io.ReadAll(io.LimitReader(r, 50<<20))
 }
+
+// defaultTimeout bounds one request unless HostTimeout says otherwise.
+const defaultTimeout = 40 * time.Second
 
 // maxRetryAfter caps how long one request waits on a Retry-After header.
 const maxRetryAfter = 2 * time.Minute
@@ -135,7 +138,7 @@ func (c *Client) Do(ctx context.Context, method, rawURL string, body []byte, hea
 	if n, ok := c.HostAttempts[u.Host]; ok && n > 0 {
 		attempts = n
 	}
-	timeout := c.http.Timeout
+	timeout := defaultTimeout
 	if d, ok := c.HostTimeout[u.Host]; ok && d > 0 {
 		timeout = d
 	}

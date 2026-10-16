@@ -86,3 +86,17 @@ func TestHostTimeoutAndAttempts(t *testing.T) {
 		t.Fatalf("took %s with %d tries; want one try cut at 200ms", d, hits.Load())
 	}
 }
+
+func TestHostTimeoutCanBeLonger(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	c := NewClient(time.Millisecond)
+	host := strings.TrimPrefix(srv.URL, "http://")
+	c.HostTimeout[host] = 2 * time.Second
+	if _, err := c.Get(context.Background(), srv.URL, nil); err != nil {
+		t.Fatal(err)
+	}
+}
