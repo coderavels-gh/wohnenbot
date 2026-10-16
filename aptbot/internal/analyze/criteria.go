@@ -295,6 +295,16 @@ func checkRent(l *listing.Listing, lim config.RentLimit) listing.Check {
 	if l.Furnished {
 		kind = "furnished"
 	}
+	if l.RentLowerBound && l.WarmRent > 0 {
+		c := listing.Check{Name: listing.CritRent}
+		if l.WarmRent > lim.ReviewUpTo {
+			c.Result = listing.Fail
+			c.Detail = fmt.Sprintf("Kaltmiete alone is %g € > %g € %s limit", l.WarmRent, lim.ReviewUpTo, kind)
+		} else {
+			c.Detail = fmt.Sprintf("only Kaltmiete known (%g €); warm rent not stated", l.WarmRent)
+		}
+		return c
+	}
 	c := numCheck(listing.CritRent, l.WarmRent, func(v float64) bool { return v <= lim.Max }, " €", l.RentNote)
 	if c.Result == listing.Fail && l.WarmRent <= lim.ReviewUpTo {
 		c.Result = listing.Unknown

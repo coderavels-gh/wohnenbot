@@ -61,7 +61,7 @@ func main() {
 	dryRun := flag.Bool("dry-run", false, "don't write to the sheet/state or send alerts; print results")
 	noAlert := flag.Bool("no-alert", false, "record listings but send no alerts (e.g. first run)")
 	testAlert := flag.Bool("test-alert", false, "send a test alert through the configured channels and exit")
-	only := flag.String("only", "", "comma-separated source names to run (homecompany,citywohnen,immoscout)")
+	only := flag.String("only", "", "comma-separated source names to run (homecompany,citywohnen,immoscout,immowelt)")
 	flag.Parse()
 
 	cfg, err := config.Load(*cfgPath)
@@ -92,6 +92,7 @@ func main() {
 	client := web.NewClient(time.Duration(cfg.RequestDelayMs) * time.Millisecond)
 	// ImmoScout is the site most likely to block; give it a wider gap.
 	client.HostDelay["api.mobile.immobilienscout24.de"] = 3 * time.Second
+	client.HostDelay["www.immowelt.de"] = 3 * time.Second
 	// Overpass rations queries per IP; space them out (it answered 429 after
 	// bursts of test runs).
 	// A healthy query takes 1–5 s; when a server is overloaded, move on to the
@@ -111,6 +112,11 @@ func main() {
 	}
 	if cfg.Sources.CityWohnen.Enabled && want("citywohnen") {
 		a.sources = append(a.sources, &sources.CityWohnen{Client: client, Cfg: cfg.Sources.CityWohnen})
+	}
+	if cfg.Sources.Immowelt.Enabled && want("immowelt") {
+		iw := &sources.Immowelt{Client: client, Cfg: cfg.Sources.Immowelt}
+		iw.Prefilter = func(l *listing.Listing) bool { return a.eval.QuickReject(l) }
+		a.sources = append(a.sources, iw)
 	}
 	if cfg.Sources.ImmoScout.Enabled && want("immoscout") {
 		a.sources = append(a.sources, &sources.ImmoScout{Client: client, Cfg: cfg.Sources.ImmoScout})

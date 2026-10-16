@@ -265,3 +265,45 @@ func TestHomeCompanyLiveDetail(t *testing.T) {
 		t.Errorf("duration %v (%s): Mindestmietdauer is a minimum, not a limit", r, c.Detail)
 	}
 }
+
+func TestImmoweltSearch(t *testing.T) {
+	cards, total, err := ParseImmoweltSearch(read(t, "immowelt_search.html"))
+	if err != nil || total != 323 || len(cards) != 30 {
+		t.Fatalf("cards=%d total=%d err=%v", len(cards), total, err)
+	}
+	var first, korallus *listing.Listing
+	for _, c := range cards {
+		if strings.Contains(c.Address, "Korallusring") {
+			korallus = c
+		}
+	}
+	first = cards[0]
+	// Warm rent below cold rent (197 € vs 1545 €) is implausible: use cold as a lower bound.
+	if first.WarmRent < 1545 || !first.RentLowerBound || first.AvailableFrom != "01.12.2026" || first.District != "Marienthal" {
+		t.Errorf("first card: %+v", first)
+	}
+	if korallus == nil || korallus.WarmRent < 1650 || korallus.WarmRent > 1651 || !korallus.AddressPrecise || korallus.Rooms == 0 || korallus.SizeM2 == 0 || !korallus.Partial || !korallus.StrictStart {
+		t.Errorf("Korallusring card: %+v", korallus)
+	}
+	u, _ := iwPageURL("https://www.immowelt.de/classified-search?locations=AD08DE1113&order=Default", 3)
+	if !strings.Contains(u, "order=DateDesc") || !strings.Contains(u, "page=3") {
+		t.Errorf("page url %s", u)
+	}
+}
+
+func TestImmoweltExpose(t *testing.T) {
+	l := ParseImmoweltExpose(read(t, "immowelt_expose.html"))
+	if l.WarmRent < 2102 || l.WarmRent > 2104 || l.SizeM2 < 115 || l.Rooms != 4 || l.AvailableFrom != "17.10.2026" {
+		t.Fatalf("parsed: rent=%v (%s) size=%v rooms=%v avail=%q", l.WarmRent, l.RentNote, l.SizeM2, l.Rooms, l.AvailableFrom)
+	}
+	if strings.Contains(l.Text, "Lagerhalle") {
+		t.Error("site navigation not cut off")
+	}
+	evaluator().Evaluate(context.Background(), l)
+	for _, crit := range []string{listing.CritBalcony, listing.CritKitchen} {
+		if r := result(t, l, crit); r != listing.Pass {
+			c, _ := l.Check(crit)
+			t.Errorf("%s: %v (%s)", crit, r, c.Detail)
+		}
+	}
+}

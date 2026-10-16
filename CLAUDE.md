@@ -68,6 +68,11 @@ alerts. See `aptbot/README.md` for how it works.
 - Normal runs fetch only unseen listings. ImmoScout reads its newest page;
   full scans only on a source's first run or after a criteria change.
   City-Wohnen sorts by move-in date, so it reads all pages (3 requests) every run.
+- **Immowelt exception:** immowelt's robots.txt disallows `classified-search?…`
+  pages, the only ones that filter and sort. The user knowingly chose to read
+  them anyway (personal use). Keep it minimal: newest-first, stop paging when a
+  page has nothing unseen or recent, prefilter on the search data, fetch
+  `/expose/` pages (allowed) only for promising flats, 3 s gap.
 - OpenStreetMap lookups are cached in `data/transit-cache.json` (and carried
   between Actions runs with `actions/cache`).
 - Test against the live sites sparingly; prefer fixtures in

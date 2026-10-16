@@ -302,3 +302,13 @@ func TestCityRule(t *testing.T) {
 		}
 	}
 }
+
+func TestRentLowerBound(t *testing.T) {
+	lim := config.RentLimit{Max: 1400, ReviewUpTo: 1500}
+	if r := checkRent(&listing.Listing{WarmRent: 1200, RentLowerBound: true}, lim).Result; r != listing.Unknown {
+		t.Errorf("cold 1200 only: %v, want unknown", r)
+	}
+	if r := checkRent(&listing.Listing{WarmRent: 1600, RentLowerBound: true}, lim).Result; r != listing.Fail {
+		t.Errorf("cold 1600 only: %v, want fail", r)
+	}
+}

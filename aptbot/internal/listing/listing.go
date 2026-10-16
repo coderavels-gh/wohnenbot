@@ -86,9 +86,12 @@ type Listing struct {
 	// Deferred: the flat has an exact location but OpenStreetMap was down,
 	// so its transit couldn't be checked. It is not recorded this run and is
 	// evaluated again next run, instead of landing in REVIEW on a guess.
-	Deferred    bool
-	Text        string // main detail text used for keyword analysis
-	TransitText string // dedicated "Lage"/transport text, if the source has one
+	Deferred bool
+	// RentLowerBound: WarmRent is only the cold rent (no warm rent known), so
+	// it can rule a flat out but not confirm it.
+	RentLowerBound bool
+	Text           string // main detail text used for keyword analysis
+	TransitText    string // dedicated "Lage"/transport text, if the source has one
 
 	// What we know about a criterion from the site itself when the listing
 	// text is silent (e.g. City-Wohnen guarantees Anmeldung for every flat).

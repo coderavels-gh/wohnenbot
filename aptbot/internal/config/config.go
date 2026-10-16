@@ -95,6 +95,16 @@ type Sources struct {
 	HomeCompany HomeCompanyConfig `json:"homecompany"`
 	CityWohnen  CityWohnenConfig  `json:"citywohnen"`
 	ImmoScout   ImmoScoutConfig   `json:"immoscout"`
+	Immowelt    ImmoweltConfig    `json:"immowelt"`
+}
+
+type ImmoweltConfig struct {
+	Enabled bool `json:"enabled"`
+	// classified-search URLs copied from the website (filters, area); the bot
+	// adds order=DateDesc and the page number.
+	SearchURLs []string `json:"search_urls"`
+	// Result pages read per run at most (more on a first run / criteria change).
+	MaxPages int `json:"max_pages"`
 }
 
 type HomeCompanyConfig struct {
@@ -202,6 +212,15 @@ func (c *Config) applyDefaults() {
 	}
 	if hc.MaxPages == 0 {
 		hc.MaxPages = 25
+	}
+	iw := &c.Sources.Immowelt
+	if len(iw.SearchURLs) == 0 {
+		// Hamburg, apartments to rent, ≤ 1800 €, ≥ 2 rooms, ≥ 50 m², no flat
+		// swaps or shared flats.
+		iw.SearchURLs = []string{"https://www.immowelt.de/classified-search?distributionTypes=Rent&estateTypes=Apartment&locations=AD08DE1113&priceMax=1800&numberOfRoomsMin=2&spaceMin=50&projectTypes=Stock,New_Build"}
+	}
+	if iw.MaxPages == 0 {
+		iw.MaxPages = 11
 	}
 	if len(c.Sources.CityWohnen.ListURLs) == 0 {
 		c.Sources.CityWohnen.ListURLs = []string{"https://www.city-wohnen.de/moeblierte-wohnung-mieten-hamburg/"}
