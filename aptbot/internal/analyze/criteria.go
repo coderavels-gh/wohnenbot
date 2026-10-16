@@ -267,6 +267,27 @@ func checkWBS(text string) listing.Check {
 	return c
 }
 
+// ---- City ------------------------------------------------------------------
+
+// "22846 Norderstedt", "20357 Hamburg–Eimsbüttel", "22045 Hamburg, Tonndorf"
+var rePostcodeTown = regexp.MustCompile(`\b(\d{5})\s+([A-ZÄÖÜ][\pL.]+(?:[ -][A-ZÄÖÜ][\pL.]+)?)`)
+
+// checkCity rejects a flat whose address names another town. An address
+// without a town (or none at all) passes: the sites are searched for the city.
+func checkCity(l *listing.Listing, city string) listing.Check {
+	c := listing.Check{Name: listing.CritCity, Result: listing.Pass, Detail: city}
+	for _, s := range []string{l.Address, l.District} {
+		if m := rePostcodeTown.FindStringSubmatch(s); m != nil {
+			town := m[2]
+			if !strings.EqualFold(town, city) && !strings.HasPrefix(strings.ToLower(town), strings.ToLower(city)+"-") {
+				c.Result, c.Detail = listing.Fail, m[1]+" "+town+" is not "+city
+			}
+			return c
+		}
+	}
+	return c
+}
+
 // ---- Rent ------------------------------------------------------------------
 
 func checkRent(l *listing.Listing, lim config.RentLimit) listing.Check {
@@ -412,6 +433,9 @@ func (e *Evaluator) Evaluate(ctx context.Context, l *listing.Listing) {
 		checks = append(checks, checkAnmeldung(text))
 	}
 	checks = append(checks, checkWBS(text))
+	if cr.City != "" {
+		checks = append(checks, checkCity(l, cr.City))
+	}
 	// Apply site-level knowledge where the listing text was silent.
 	for i, c := range checks {
 		if c.Result != listing.Unknown {
@@ -428,7 +452,7 @@ func (e *Evaluator) Evaluate(ctx context.Context, l *listing.Listing) {
 			failed = true
 		}
 	}
-	if cr.MinTransitModes > 0 {
+	if cr.MinTransitModes > 0 || cr.CommuteHbf {
 		if failed || e.Transit == nil {
 			checks = append(checks, listing.Check{Name: listing.CritTransit, Detail: "not checked"})
 		} else {

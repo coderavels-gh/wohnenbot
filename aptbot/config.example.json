@@ -20,7 +20,9 @@
     "require_anmeldung": true,
     "min_transit_modes": 2,
     "bus_radius_m": 400,
-    "rail_radius_m": 900
+    "rail_radius_m": 900,
+    "commute_hbf_within_hour": true,
+    "city": "Hamburg"
   },
 
   "sources": {

@@ -251,3 +251,54 @@ func TestAreaInRunningText(t *testing.T) {
 		t.Fatalf("area %v", a)
 	}
 }
+
+func TestCommuteRule(t *testing.T) {
+	cr := config.Criteria{CommuteHbf: true, MinTransitModes: 2, RailRadiusM: 1000, BusRadiusM: 1000}
+	osm := modesSource{osm: true}
+	text := modesSource{note: " (from listing text)"}
+	cases := []struct {
+		name  string
+		modes map[string]string
+		where modesSource
+		want  listing.Result
+	}{
+		{"U-Bahn + bus", map[string]string{ModeUBahn: "Schlump", ModeBus: "x"}, osm, listing.Pass},
+		{"bus + ferry", map[string]string{ModeFerry: "Finkenwerder", ModeBus: "y"}, osm, listing.Pass},
+		{"S-Bahn + U-Bahn", map[string]string{ModeSBahn: "a", ModeUBahn: "b"}, osm, listing.Pass},
+		{"S-Bahn only: no fallback", map[string]string{ModeSBahn: "Sternschanze"}, osm, listing.Fail},
+		{"bus only", map[string]string{ModeBus: "Moränenweg"}, osm, listing.Fail},
+		{"nothing", map[string]string{}, osm, listing.Fail},
+		{"text: S-Bahn + bus", map[string]string{ModeSBahn: "S1", ModeBus: "Bus 5"}, text, listing.Pass},
+		{"text: S-Bahn only", map[string]string{ModeSBahn: "S1"}, text, listing.Unknown},
+	}
+	for _, c := range cases {
+		if got := commuteCheck(c.modes, c.where, cr); got.Result != c.want {
+			t.Errorf("%s: %v want %v (%s)", c.name, got.Result, c.want, got.Detail)
+		}
+	}
+	if m := modesFromText("Lage: 5 Minuten zum HADAG-Fähranleger, Bus 150"); !hasMode(m, ModeFerry) || !hasMode(m, ModeBus) {
+		t.Errorf("text modes %v", m)
+	}
+	if got := classifyStop(map[string]string{"amenity": "ferry_terminal", "name": "Neumühlen/Övelgönne"}); len(got) != 1 || got[0] != ModeFerry {
+		t.Errorf("ferry terminal classified %v", got)
+	}
+}
+
+func TestCityRule(t *testing.T) {
+	cases := []struct {
+		l    listing.Listing
+		want listing.Result
+	}{
+		{listing.Listing{Address: "22045 Hamburg, Tonndorf (unvollständige Adresse)"}, listing.Pass},
+		{listing.Listing{Address: "20357 Hamburg", District: "Eimsbüttel"}, listing.Pass},
+		{listing.Listing{Address: "Emilienstraße, Hamburg"}, listing.Pass},
+		{listing.Listing{Address: "22846 Norderstedt, Garstedt"}, listing.Fail},
+		{listing.Listing{Address: "25421 Pinneberg"}, listing.Fail},
+		{listing.Listing{}, listing.Pass},
+	}
+	for _, c := range cases {
+		if got := checkCity(&c.l, "Hamburg"); got.Result != c.want {
+			t.Errorf("%q → %v want %v (%s)", c.l.Address, got.Result, c.want, got.Detail)
+		}
+	}
+}

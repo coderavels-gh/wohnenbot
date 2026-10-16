@@ -43,6 +43,7 @@ const (
 	CritTransit   = "Transit"
 	CritMoveIn    = "Move-in"
 	CritWBS       = "WBS"
+	CritCity      = "City"
 )
 
 type Check struct {

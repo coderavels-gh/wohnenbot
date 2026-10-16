@@ -55,9 +55,18 @@ type Criteria struct {
 	// own machine) is normal. true = count it as a pass.
 	WasherConnectionOK bool `json:"washing_machine_connection_ok"`
 
-	MinTransitModes int `json:"min_transit_modes"` // distinct modes among Bus / U-Bahn / S-Bahn
-	BusRadiusM      int `json:"bus_radius_m"`
-	RailRadiusM     int `json:"rail_radius_m"`
+	MinTransitModes int `json:"min_transit_modes"` // distinct modes among Bus / U-Bahn / S-Bahn (when commute_hbf is off)
+	// CommuteHbf: besides min_transit_modes different modes (bus, U-Bahn,
+	// S-Bahn, ferry) near the flat, Hamburg Hbf (Nord) must be reachable
+	// within an hour. Rule of thumb (no journey planner): a U/S-Bahn station
+	// or ferry pier within rail_radius_m gets there (every Hamburg
+	// rapid-transit station is ≤ ~40 min from Hbf).
+	CommuteHbf bool `json:"commute_hbf_within_hour"`
+	// City: the flat must be in this city ("Hamburg"); an address naming
+	// another town is rejected. Empty = any.
+	City        string `json:"city"`
+	BusRadiusM  int    `json:"bus_radius_m"`
+	RailRadiusM int    `json:"rail_radius_m"`
 }
 
 // RentLimit: up to Max passes; above Max but up to ReviewUpTo is REVIEW

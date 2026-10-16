@@ -24,6 +24,7 @@ const (
 	ModeBus   = "Bus"
 	ModeUBahn = "U-Bahn"
 	ModeSBahn = "S-Bahn"
+	ModeFerry = "Ferry"
 )
 
 // TransitChecker counts distinct transit modes near a listing, using
@@ -115,20 +116,21 @@ func (t *TransitChecker) SaveCache(path string) error {
 // stopsKey rounds to 3 decimals (~110 m × 70 m in Hamburg): close enough for
 // 400–1000 m radii, and nearby flats share an entry.
 func stopsKey(lat, lon float64, busR, railR int) string {
-	return fmt.Sprintf("%.3f,%.3f,%d,%d", lat, lon, busR, railR)
+	return fmt.Sprintf("v2:%.3f,%.3f,%d,%d", lat, lon, busR, railR) // v2: ferries included
 }
 
 // ---- text-based ------------------------------------------------------------
 
 var (
-	reTextU   = regexp.MustCompile(`\bU\s?-?[1-5]\b|U-Bahn|U-Bhf|U-Station|\bU [A-ZÄÖÜ][a-zäöüß]+`)
-	reTextS   = regexp.MustCompile(`\bS\s?-?[1-9]\d?\b|S-Bahn|S-Bhf|\bS [A-ZÄÖÜ][a-zäöüß]+`)
-	reTextBus = regexp.MustCompile(`(?i)\bbus(?:se|linie|linien|haltestelle|station|stop)?\b|metrobus|schnellbus|\bbus\s*\d`)
+	reTextU     = regexp.MustCompile(`\bU\s?-?[1-5]\b|U-Bahn|U-Bhf|U-Station|\bU [A-ZÄÖÜ][a-zäöüß]+`)
+	reTextS     = regexp.MustCompile(`\bS\s?-?[1-9]\d?\b|S-Bahn|S-Bhf|\bS [A-ZÄÖÜ][a-zäöüß]+`)
+	reTextFerry = regexp.MustCompile(`(?i)\bfähre|fähranleger|\bhadag\b|\banleger\b|\bferry\b|schiffsanleger`)
+	reTextBus   = regexp.MustCompile(`(?i)\bbus(?:se|linie|linien|haltestelle|station|stop)?\b|metrobus|schnellbus|\bbus\s*\d`)
 )
 
 func modesFromText(text string) map[string]string {
 	out := map[string]string{}
-	for mode, re := range map[string]*regexp.Regexp{ModeUBahn: reTextU, ModeSBahn: reTextS, ModeBus: reTextBus} {
+	for mode, re := range map[string]*regexp.Regexp{ModeUBahn: reTextU, ModeSBahn: reTextS, ModeBus: reTextBus, ModeFerry: reTextFerry} {
 		if loc := re.FindStringIndex(text); loc != nil {
 			out[mode] = strings.TrimSpace(text[loc[0]:loc[1]])
 		}
@@ -218,6 +220,8 @@ node(around:%[1]d,%[3]f,%[4]f)[highway=bus_stop];
 node(around:%[1]d,%[3]f,%[4]f)[public_transport=platform][bus=yes];
 node(around:%[2]d,%[3]f,%[4]f)[railway~"^(station|halt|stop)$"];
 node(around:%[2]d,%[3]f,%[4]f)[public_transport=station];
+node(around:%[2]d,%[3]f,%[4]f)[amenity=ferry_terminal];
+node(around:%[2]d,%[3]f,%[4]f)[public_transport=platform][ferry=yes];
 );out tags;`, busR, railR, lat, lon)
 	body, err := t.overpass(ctx, q)
 	if err != nil {
@@ -323,14 +327,40 @@ func classifyStop(tags map[string]string) []string {
 		(tags["railway"] == "halt" && tags["station"] != "subway") {
 		out = append(out, ModeSBahn)
 	}
+	if tags["amenity"] == "ferry_terminal" || tags["ferry"] == "yes" {
+		out = append(out, ModeFerry)
+	}
 	return out
 }
 
 // Check decides the transit criterion for one listing.
 func (t *TransitChecker) Check(ctx context.Context, l *listing.Listing, cr config.Criteria) listing.Check {
+	modes, where := t.modes(ctx, l, cr)
+	if cr.CommuteHbf {
+		return commuteCheck(modes, where, cr)
+	}
 	c := listing.Check{Name: listing.CritTransit}
-	need := cr.MinTransitModes
+	if where.osm {
+		c.Detail = fmt.Sprintf("%s within %dm bus / %dm rail (OSM)", describe(modes), cr.BusRadiusM, cr.RailRadiusM)
+		c.Result = listing.Fail
+	} else {
+		c.Detail = describe(modes) + where.note
+	}
+	if len(modes) >= cr.MinTransitModes {
+		c.Result = listing.Pass
+	}
+	return c
+}
 
+// modesSource says where the transit modes came from.
+type modesSource struct {
+	osm  bool   // OpenStreetMap stops around exact coordinates
+	note string // for text-based results: " (from listing text…)"
+}
+
+// modes finds transit near the flat: OSM stops when the location is exact,
+// otherwise mentions in the listing's own text.
+func (t *TransitChecker) modes(ctx context.Context, l *listing.Listing, cr config.Criteria) (map[string]string, modesSource) {
 	if !t.Offline {
 		lat, lon, precise := l.Lat, l.Lon, l.Lat != 0
 		if !precise && l.AddressPrecise && l.Address != "" {
@@ -343,13 +373,7 @@ func (t *TransitChecker) Check(ctx context.Context, l *listing.Listing, cr confi
 		if precise {
 			modes, err := t.stopsNear(ctx, lat, lon, cr.BusRadiusM, cr.RailRadiusM)
 			if err == nil {
-				c.Detail = fmt.Sprintf("%s within %dm bus / %dm rail (OSM)", describe(modes), cr.BusRadiusM, cr.RailRadiusM)
-				if len(modes) >= need {
-					c.Result = listing.Pass
-				} else {
-					c.Result = listing.Fail
-				}
-				return c
+				return modes, modesSource{osm: true}
 			}
 			log.Printf("transit: overpass for %s: %v", l.Key(), err)
 		}
@@ -358,14 +382,51 @@ func (t *TransitChecker) Check(ctx context.Context, l *listing.Listing, cr confi
 	if src == "" {
 		src = l.Title + "\n" + l.Text
 	}
-	modes := modesFromText(src)
-	c.Detail = describe(modes) + " (from listing text"
+	note := " (from listing text"
 	if !l.AddressPrecise {
-		c.Detail += "; no street address"
+		note += "; no street address"
 	}
-	c.Detail += ")"
-	if len(modes) >= need {
+	return modesFromText(src), modesSource{note: note + ")"}
+}
+
+// commuteCheck: at least min_transit_modes different modes (bus, U-Bahn,
+// S-Bahn, ferry) reachable from the flat, so there is a fallback when one is
+// disrupted, AND Hamburg Hbf Nord within an hour. The hour is a rule of
+// thumb: a U/S-Bahn station or ferry pier within rail_radius_m gets there
+// (every Hamburg rapid-transit station is ≤ ~40 min from Hbf), a bus alone is
+// not verified.
+func commuteCheck(modes map[string]string, where modesSource, cr config.Criteria) listing.Check {
+	c := listing.Check{Name: listing.CritTransit}
+	rapid := 0
+	for _, m := range []string{ModeUBahn, ModeSBahn, ModeFerry} {
+		if hasMode(modes, m) {
+			rapid++
+		}
+	}
+	need := cr.MinTransitModes
+	if need < 1 {
+		need = 1
+	}
+	found := describe(modes)
+	if where.osm {
+		found += fmt.Sprintf(" within %dm (OSM)", cr.RailRadiusM)
+	} else {
+		found += where.note
+	}
+	switch {
+	case len(modes) >= need && rapid > 0:
 		c.Result = listing.Pass
+		c.Detail = fmt.Sprintf("%d modes, Hbf Nord ≤ 1 h: %s", len(modes), found)
+	case !where.osm:
+		// The listing text may simply not mention every stop.
+		c.Detail = "not confirmed: " + found
+	case len(modes) < need:
+		c.Result = listing.Fail
+		c.Detail = fmt.Sprintf("only %d mode(s), need %d: %s", len(modes), need, found)
+	default: // enough modes but no rapid transit: bus only
+		c.Detail = "Hbf Nord within 1 h not verified (no U/S-Bahn or ferry): " + found
 	}
 	return c
 }
+
+func hasMode(modes map[string]string, m string) bool { _, ok := modes[m]; return ok }
