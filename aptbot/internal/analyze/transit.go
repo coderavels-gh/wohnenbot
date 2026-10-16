@@ -3,6 +3,7 @@ package analyze
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -31,15 +32,16 @@ const (
 // OpenStreetMap (Nominatim geocoding + Overpass stop lookup) when the address
 // is precise, and the listing's own "Lage" text otherwise.
 type TransitChecker struct {
-	client  *web.Client
-	ua      string
-	mu      sync.Mutex
-	geo     map[string]geoResult
-	nearby  map[string]stopsResult // "lat,lon,busR,railR" → modes found
-	dirty   bool                   // cache changed since LoadCache
-	Offline bool                   // tests: text-only
-	server  int                    // index into overpassServers
-	osmDown error                  // every server failed this run: stop asking
+	client   *web.Client
+	ua       string
+	mu       sync.Mutex
+	geo      map[string]geoResult
+	nearby   map[string]stopsResult // "lat,lon,busR,railR" → modes found
+	dirty    bool                   // cache changed since LoadCache
+	Offline  bool                   // tests: text-only
+	server   int                    // index into overpassServers
+	osmDown  error                  // every server failed this run: stop asking
+	cooldown map[string]time.Time   // server → leave alone until (persisted)
 }
 
 func NewTransitChecker(client *web.Client, contactEmail string) *TransitChecker {
@@ -47,7 +49,7 @@ func NewTransitChecker(client *web.Client, contactEmail string) *TransitChecker 
 	if contactEmail != "" {
 		ua += " " + contactEmail
 	}
-	return &TransitChecker{client: client, ua: ua, geo: map[string]geoResult{}, nearby: map[string]stopsResult{}}
+	return &TransitChecker{client: client, ua: ua, geo: map[string]geoResult{}, nearby: map[string]stopsResult{}, cooldown: map[string]time.Time{}}
 }
 
 // ---- persistent cache --------------------------------------------------------
@@ -63,7 +65,17 @@ const (
 type cacheFile struct {
 	Geo   map[string]geoResult   `json:"geo"`
 	Stops map[string]stopsResult `json:"stops"`
+	// Cooldown: Overpass servers to leave alone until then (persisted, so a
+	// server that rate-limits or blocks us isn't knocked on every run).
+	Cooldown map[string]time.Time `json:"cooldown,omitempty"`
 }
+
+const (
+	// No answer at all, or 429: likely a rate limit or a block of our IP.
+	cooldownBlocked = 6 * time.Hour
+	// Other errors (5xx, garbage): the server is having a bad moment.
+	cooldownError = 30 * time.Minute
+)
 
 // LoadCache reads the cache file, dropping expired entries.
 func (t *TransitChecker) LoadCache(path string) {
@@ -88,6 +100,11 @@ func (t *TransitChecker) LoadCache(path string) {
 			t.nearby[k] = s
 		}
 	}
+	for k, until := range cf.Cooldown {
+		if time.Now().Before(until) {
+			t.cooldown[k] = until
+		}
+	}
 }
 
 // SaveCache writes the cache file if anything was added.
@@ -97,7 +114,7 @@ func (t *TransitChecker) SaveCache(path string) error {
 		t.mu.Unlock()
 		return nil
 	}
-	raw, err := json.Marshal(cacheFile{Geo: t.geo, Stops: t.nearby})
+	raw, err := json.Marshal(cacheFile{Geo: t.geo, Stops: t.nearby, Cooldown: t.cooldown})
 	t.dirty = false
 	t.mu.Unlock()
 	if err != nil {
@@ -287,7 +304,15 @@ func (t *TransitChecker) overpass(ctx context.Context, q string) ([]byte, error)
 	for tries := 0; tries < len(overpassServers); tries++ {
 		t.mu.Lock()
 		server := overpassServers[t.server%len(overpassServers)]
+		until, cooling := t.cooldown[server]
 		t.mu.Unlock()
+		if cooling && time.Now().Before(until) {
+			lastErr = fmt.Errorf("%s cooling down until %s", server, until.Format("15:04"))
+			t.mu.Lock()
+			t.server++
+			t.mu.Unlock()
+			continue
+		}
 		body, err := t.client.Do(ctx, "POST", server, []byte("data="+url.QueryEscape(q)),
 			map[string]string{"User-Agent": t.ua, "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"})
 		if err == nil && json.Valid(body) {
@@ -300,9 +325,16 @@ func (t *TransitChecker) overpass(ctx context.Context, q string) ([]byte, error)
 			return nil, ctx.Err()
 		}
 		lastErr = err
-		log.Printf("transit: %s failed, switching server: %.120v", server, err)
+		pause := cooldownError
+		var he *web.HTTPError
+		if !errors.As(err, &he) || he.Status == 429 || he.Status == 403 {
+			pause = cooldownBlocked // no answer at all, or told to back off
+		}
+		log.Printf("transit: %s failed, leaving it alone for %s: %.120v", server, pause, err)
 		t.mu.Lock()
 		t.server++
+		t.cooldown[server] = time.Now().Add(pause)
+		t.dirty = true
 		t.mu.Unlock()
 	}
 	t.mu.Lock()

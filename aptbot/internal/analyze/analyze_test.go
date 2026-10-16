@@ -312,3 +312,29 @@ func TestRentLowerBound(t *testing.T) {
 		t.Errorf("cold 1600 only: %v, want fail", r)
 	}
 }
+
+func TestOverpassCooldownPersists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.json")
+	tc := NewTransitChecker(nil, "")
+	tc.cooldown[overpassServers[0]] = time.Now().Add(time.Hour)
+	tc.cooldown["expired"] = time.Now().Add(-time.Minute)
+	tc.dirty = true
+	if err := tc.SaveCache(path); err != nil {
+		t.Fatal(err)
+	}
+	tc2 := NewTransitChecker(nil, "")
+	tc2.LoadCache(path)
+	if _, ok := tc2.cooldown[overpassServers[0]]; !ok {
+		t.Error("cooldown not loaded")
+	}
+	if _, ok := tc2.cooldown["expired"]; ok {
+		t.Error("expired cooldown loaded")
+	}
+	// Every server cooling down: no request is made (nil client would panic).
+	for _, s := range overpassServers {
+		tc2.cooldown[s] = time.Now().Add(time.Hour)
+	}
+	if _, err := tc2.overpass(context.Background(), "q"); err == nil {
+		t.Error("expected an error while all servers cool down")
+	}
+}
