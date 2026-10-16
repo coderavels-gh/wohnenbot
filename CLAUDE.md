@@ -68,6 +68,11 @@ alerts. See `aptbot/README.md` for how it works.
 - Normal runs fetch only unseen listings. ImmoScout reads its newest page;
   full scans only on a source's first run or after a criteria change.
   City-Wohnen sorts by move-in date, so it reads all pages (3 requests) every run.
+- **immowelt runs on the user's Mac, not in the cloud**: it answers GitHub's
+  datacenter IPs with HTTP 403 (bot protection). The workflow passes
+  `-skip immowelt`; the Mac LaunchAgent (`deploy/install-mac.sh`, default
+  `ONLY=immowelt`) runs `-once -only immowelt` hourly while the Mac is awake.
+  Both write to the same sheet.
 - **Immowelt exception:** immowelt's robots.txt disallows `classified-search?…`
   pages, the only ones that filter and sort. The user knowingly chose to read
   them anyway (personal use). Keep it minimal: newest-first, stop paging when a

@@ -62,6 +62,7 @@ func main() {
 	noAlert := flag.Bool("no-alert", false, "record listings but send no alerts (e.g. first run)")
 	testAlert := flag.Bool("test-alert", false, "send a test alert through the configured channels and exit")
 	only := flag.String("only", "", "comma-separated source names to run (homecompany,citywohnen,immoscout,immowelt)")
+	skip := flag.String("skip", "", "comma-separated source names not to run (e.g. immowelt in the cloud: it blocks datacenter IPs)")
 	flag.Parse()
 
 	cfg, err := config.Load(*cfgPath)
@@ -103,6 +104,9 @@ func main() {
 		client.HostAttempts[h] = 1
 	}
 	want := func(name string) bool {
+		if *skip != "" && strings.Contains(strings.ToLower(*skip), name) {
+			return false
+		}
 		return *only == "" || strings.Contains(strings.ToLower(*only), name)
 	}
 	if cfg.Sources.HomeCompany.Enabled && want("homecompany") {
@@ -221,6 +225,16 @@ func (a *app) run(ctx context.Context) error {
 			log.Printf("[%s] re-checked %d rejected listing(s) from stored data, without fetching them", src.Name(), revived)
 		}
 		a.flush(ctx, rs)
+		if _, ok := src.(interface{ SetFullScan(bool) }); ok && err == nil && rs.err == nil && !a.dryRun {
+			if first || a.store.NeedsRecheck(src.Name()) {
+				// Remember that this source was fully read under these criteria.
+				mark := store.Record{Key: store.ScanKey(src.Name()), Source: src.Name(), Verdict: "SCAN",
+					FirstSeen: rs.now.Format("2006-01-02 15:04"), Title: "full scan done under these criteria", Criteria: a.criteria}
+				if err := a.store.Add(ctx, []store.Record{mark}); err != nil {
+					log.Printf("[%s] saving scan marker: %v", src.Name(), err)
+				}
+			}
+		}
 		if first {
 			log.Printf("[%s] first run: recorded its current listings as the baseline, no alerts", src.Name())
 		}

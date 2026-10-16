@@ -47,4 +47,10 @@ func TestRejectedReevaluatedWhenCriteriaChange(t *testing.T) {
 	if same.NeedsRecheck("X") || !changed.NeedsRecheck("X") || changed.NeedsRecheck("Y") {
 		t.Error("NeedsRecheck should be true only after the criteria change")
 	}
+	// After a full scan under the new criteria, leftover old rejects (gone
+	// from the site) don't trigger another one.
+	changed.Add(ctx, []Record{{Key: ScanKey("X"), Source: "X", Verdict: "SCAN", Criteria: "new"}})
+	if changed.NeedsRecheck("X") {
+		t.Error("NeedsRecheck still true after the full scan marker")
+	}
 }

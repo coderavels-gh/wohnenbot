@@ -31,6 +31,10 @@ type Record struct {
 	Data string `json:"data,omitempty"`
 }
 
+// ScanKey is the Seen key of a source's "full scan done" marker: its
+// Criteria field holds the fingerprint the last full re-check ran under.
+func ScanKey(source string) string { return "_scan:" + source }
+
 // skip reports whether a recorded listing needs no new evaluation: it was
 // written to the tracker (MATCH/REVIEW), or rejected under the current criteria.
 func skip(r Record, criteria string) bool {
@@ -115,6 +119,11 @@ func (f *File) NeedsRecheck(source string) bool {
 }
 
 func needsRecheck(recs map[string]Record, source, criteria string) bool {
+	// Once a full re-check ran under these criteria, listings still carrying
+	// an older fingerprint are gone from the site; don't scan again for them.
+	if m, ok := recs[ScanKey(source)]; ok && m.Criteria == criteria {
+		return false
+	}
 	for k, r := range recs {
 		if strings.HasPrefix(k, source+":") && !skip(r, criteria) {
 			return true

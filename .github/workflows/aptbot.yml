@@ -91,7 +91,7 @@ jobs:
           if [ "${{ inputs.test_alert }}" = "true" ]; then
             ./aptbot -test-alert -config config.json
           else
-            ./aptbot -once -config config.json
+            ./aptbot -once -skip immowelt -config config.json # immowelt blocks datacenter IPs; it runs on the Mac
           fi
       - if: always() && steps.secrets.outputs.ok == 'true'
         name: Save OpenStreetMap cache
