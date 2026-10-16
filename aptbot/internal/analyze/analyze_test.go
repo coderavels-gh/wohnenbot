@@ -338,3 +338,22 @@ func TestOverpassCooldownPersists(t *testing.T) {
 		t.Error("expected an error while all servers cool down")
 	}
 }
+
+func TestLocalStopsNear(t *testing.T) {
+	f := &StopsFile{BBox: [4]float64{53.37, 9.70, 53.78, 10.36}, Stops: []Stop{
+		{Lat: 53.5679, Lon: 9.9692, Modes: []string{ModeUBahn}, Name: "Schlump"},           // ~350 m
+		{Lat: 53.5650, Lon: 9.9640, Modes: []string{ModeBus}, Name: "Schäferkampsallee"},   // ~250 m
+		{Lat: 53.5800, Lon: 9.9700, Modes: []string{ModeSBahn}, Name: "far away"},          // ~1.6 km
+		{Lat: 53.5660, Lon: 9.9660, Modes: []string{ModeBus, ModeUBahn}, Name: "combined"}, // ~50 m
+	}}
+	m := f.near(53.5657, 9.9667, 400, 1000)
+	if m[ModeUBahn] != "combined" || m[ModeBus] != "combined" || hasMode(m, ModeSBahn) {
+		t.Errorf("near: %v", m)
+	}
+	if !f.covers(53.55, 10.0) || f.covers(52.5, 13.4) {
+		t.Error("bbox")
+	}
+	if d := distanceM(53.5657, 9.9667, 53.5679, 9.9692); d < 250 || d > 350 {
+		t.Errorf("distance %v", d)
+	}
+}

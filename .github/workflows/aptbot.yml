@@ -56,7 +56,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: aptbot/aptbot
-          key: aptbot-bin-${{ runner.os }}-${{ hashFiles('aptbot/go.mod', 'aptbot/**/*.go') }}
+          key: aptbot-bin-${{ runner.os }}-${{ hashFiles('aptbot/go.mod', 'aptbot/**/*.go', 'aptbot/**/*.json.gz') }}
       - if: steps.secrets.outputs.ok == 'true' && steps.bin.outputs.cache-hit != 'true'
         uses: actions/setup-go@v5
         with: { go-version-file: aptbot/go.mod, cache: false }
@@ -68,7 +68,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: aptbot/aptbot
-          key: aptbot-bin-${{ runner.os }}-${{ hashFiles('aptbot/go.mod', 'aptbot/**/*.go') }}
+          key: aptbot-bin-${{ runner.os }}-${{ hashFiles('aptbot/go.mod', 'aptbot/**/*.go', 'aptbot/**/*.json.gz') }}
       - if: steps.secrets.outputs.ok == 'true'
         name: Restore OpenStreetMap cache
         uses: actions/cache/restore@v4

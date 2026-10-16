@@ -1,0 +1,32 @@
+# Refresh the bot's local stop list (every bus stop, U/S-Bahn station and
+# ferry pier in and around Hamburg, from OpenStreetMap) and commit it.
+# Runs on GitHub because overpass-api.de doesn't answer the user's home IP.
+# Start it by hand (Actions → refresh stops → Run workflow) every few months.
+name: refresh stops
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: write
+jobs:
+  stops:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: aptbot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: aptbot/go.mod, cache: false }
+      - name: Extract stops from OpenStreetMap
+        run: go run ./cmd/stops -out internal/analyze/hamburg_stops.json.gz -contact you@example.com
+      - name: Test with the new list
+        run: go test ./internal/analyze/
+      - name: Commit
+        run: |
+          git config user.name "aptbot stop refresh"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/analyze/hamburg_stops.json.gz
+          git diff --cached --quiet && { echo "no change"; exit 0; }
+          git commit -m "Refresh local stop list from OpenStreetMap"
+          git push

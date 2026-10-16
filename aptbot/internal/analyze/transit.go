@@ -225,6 +225,9 @@ func (t *TransitChecker) geocode(ctx context.Context, q string) geoResult {
 }
 
 func (t *TransitChecker) stopsNear(ctx context.Context, lat, lon float64, busR, railR int) (map[string]string, error) {
+	if ls := LocalStops(); ls != nil && ls.covers(lat, lon) {
+		return ls.near(lat, lon, busR, railR), nil // local stop list: no network
+	}
 	key := stopsKey(lat, lon, busR, railR)
 	t.mu.Lock()
 	if m, ok := t.nearby[key]; ok {
