@@ -28,6 +28,10 @@ const (
 	Match  Verdict = "MATCH"  // every criterion confirmed
 	Review Verdict = "REVIEW" // nothing failed, some criteria couldn't be confirmed
 	Reject Verdict = "REJECT" // at least one criterion failed
+	// Deferred: would pass or need review, but transit couldn't be checked
+	// (OpenStreetMap down). Recorded with its Data and re-checked from it at
+	// the start of each run; never written to the tracker or alerted.
+	Deferred Verdict = "DEFERRED"
 )
 
 // Criterion names, used as keys for checks and source defaults.

@@ -158,26 +158,46 @@ func (p *probeSource) Fetch(ctx context.Context, seen func(string) bool, emit fu
 	return nil
 }
 
-// transitDown makes every exact-location transit check fail like an OSM outage.
+// While OSM is down, a flat with an exact location is recorded as DEFERRED
+// (no tracker row); once OSM works it is re-checked from its stored Data
+// without the source being asked again.
 func TestDeferredWhenOSMDown(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "seen.json")
-	src := &deferSource{}
 	cr := config.Criteria{MinTransitModes: 2, CommuteHbf: true, RailRadiusM: 1000, BusRadiusM: 1000}
-	a := &app{cfg: &config.Config{}, store: &store.File{Path: path, Criteria: "c"}, sources: []sources.Source{src},
-		eval: &analyze.Evaluator{Criteria: cr, Transit: analyze.NewDownTransitChecker()}, notify: notify.NewDispatcher(config.NotifyConfig{}),
-		noAlert: true, loc: time.UTC}
-	if err := a.run(ctx); err != nil {
-		t.Fatal(err)
+	run := func(tc *analyze.TransitChecker, src sources.Source) {
+		a := &app{cfg: &config.Config{}, store: &store.File{Path: path, Criteria: "c"}, sources: []sources.Source{src},
+			eval: &analyze.Evaluator{Criteria: cr, Transit: tc}, notify: notify.NewDispatcher(config.NotifyConfig{}),
+			noAlert: true, loc: time.UTC}
+		if err := a.run(ctx); err != nil {
+			t.Fatal(err)
+		}
 	}
+	run(analyze.NewDownTransitChecker(), deferSource{})
 	st := &store.File{Path: path}
 	st.Load(ctx)
-	if st.Known("Fake:exact") {
-		t.Error("flat with exact location recorded although OSM was down")
+	if got := st.Deferred(); len(got) != 1 || got[0] != "Fake:exact" {
+		t.Fatalf("deferred %v, want [Fake:exact]", got)
 	}
 	if !st.Known("Fake:vague") {
 		t.Error("flat without exact location should be judged from its text and recorded")
 	}
+
+	// OSM back (offline checker: text-based, not "down"); the source lists nothing.
+	tc := analyze.NewTransitChecker(nil, "")
+	tc.Offline = true
+	run(tc, emptySource{})
+	st.Load(ctx)
+	if len(st.Deferred()) != 0 {
+		t.Errorf("still deferred after OSM came back: %v", st.Deferred())
+	}
+}
+
+type emptySource struct{}
+
+func (emptySource) Name() string { return "Fake" }
+func (emptySource) Fetch(context.Context, func(string) bool, func(*listing.Listing)) error {
+	return nil
 }
 
 type deferSource struct{}

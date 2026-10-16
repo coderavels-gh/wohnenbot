@@ -52,6 +52,7 @@ type app struct {
 	loc     *time.Location
 
 	criteria string // fingerprint stored with each Seen record
+	fullScan bool   // -full-scan
 	transit  *analyze.TransitChecker
 }
 
@@ -62,6 +63,7 @@ func main() {
 	noAlert := flag.Bool("no-alert", false, "record listings but send no alerts (e.g. first run)")
 	testAlert := flag.Bool("test-alert", false, "send a test alert through the configured channels and exit")
 	only := flag.String("only", "", "comma-separated source names to run (homecompany,citywohnen,immoscout,immowelt)")
+	fullScan := flag.Bool("full-scan", false, "read every result page this run (sources that page by recency)")
 	skip := flag.String("skip", "", "comma-separated source names not to run (e.g. immowelt in the cloud: it blocks datacenter IPs)")
 	flag.Parse()
 
@@ -73,7 +75,7 @@ func main() {
 	if err != nil {
 		loc = time.Local
 	}
-	a := &app{cfg: cfg, dryRun: *dryRun, noAlert: *noAlert, loc: loc, notify: notify.NewDispatcher(cfg.Notify)}
+	a := &app{cfg: cfg, dryRun: *dryRun, noAlert: *noAlert, fullScan: *fullScan, loc: loc, notify: notify.NewDispatcher(cfg.Notify)}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -176,9 +178,10 @@ type runState struct {
 	baseline map[string]bool // source → first run (record, don't alert)
 	pending  []*listing.Listing
 	counts   map[listing.Verdict]int
-	alerted  int // alerts sent this run (capped at max_per_run)
-	overflow int // alertable listings beyond the cap
-	deferred int // not recorded: transit couldn't be checked (OSM down)
+	alerted  int             // alerts sent this run (capped at max_per_run)
+	overflow int             // alertable listings beyond the cap
+	deferred int             // transit couldn't be checked (OSM down)
+	retrying map[string]bool // deferred listings re-checked at the start of this run
 	err      error
 }
 
@@ -202,6 +205,7 @@ func (a *app) run(ctx context.Context) error {
 		rs.header = h
 		checkHeader(h)
 	}
+	a.retryDeferred(ctx, rs)
 	for _, src := range a.sources {
 		// A source's first run: the site has dozens of existing listings.
 		// Record them (candidates still go to the sheet) as a baseline,
@@ -215,7 +219,7 @@ func (a *app) run(ctx context.Context) error {
 			if recheck {
 				log.Printf("[%s] criteria changed: reading all result pages to re-check rejected listings", src.Name())
 			}
-			fs.SetFullScan(first || recheck)
+			fs.SetFullScan(first || recheck || a.fullScan)
 		}
 		revived, err := a.fetch(ctx, src, func(l *listing.Listing) { a.handle(ctx, rs, l) })
 		if err != nil {
@@ -259,16 +263,45 @@ func (a *app) run(ctx context.Context) error {
 	return rs.err
 }
 
+// retryDeferred re-checks DEFERRED listings of the sources this run handles,
+// from their stored Data: no site requests, only the transit check.
+func (a *app) retryDeferred(ctx context.Context, rs *runState) {
+	rs.retrying = map[string]bool{}
+	mine := map[string]bool{}
+	for _, s := range a.sources {
+		mine[s.Name()] = true
+	}
+	n := 0
+	for _, key := range a.store.Deferred() {
+		l, err := listing.Decode(a.store.Data(ctx, key))
+		if err != nil || !mine[l.Source] {
+			continue
+		}
+		rs.retrying[key] = true
+		n++
+		a.handle(ctx, rs, l)
+	}
+	if n > 0 {
+		a.flush(ctx, rs)
+		log.Printf("re-checked %d deferred listing(s) from stored data", n)
+	}
+}
+
 // handle evaluates one listing and queues it for the next flush.
 func (a *app) handle(ctx context.Context, rs *runState, l *listing.Listing) {
 	l.FirstSeen = rs.now
+	l.Deferred = false
 	a.eval.Evaluate(ctx, l)
 	if l.Deferred && l.Verdict != listing.Reject {
-		// Would pass or need review, but its transit couldn't be checked:
-		// leave it unrecorded so the next run evaluates it with OSM.
+		// Would pass or need review, but its transit couldn't be checked.
+		// Record it as DEFERRED (with its Data, no tracker row, no alert);
+		// the next runs re-check it from that data first.
 		rs.deferred++
-		log.Printf("[%s] %s: OpenStreetMap unavailable, transit not checked; deferred to the next run", l.Source, l.Key())
-		return
+		if rs.retrying[l.Key()] || l.Encode() == "" {
+			return // already recorded as deferred, or too big to store: try again later
+		}
+		log.Printf("[%s] %s: OpenStreetMap unavailable, transit not checked; deferred", l.Source, l.Key())
+		l.Verdict = listing.Deferred
 	}
 	rs.counts[l.Verdict]++
 	if a.dryRun {
@@ -296,7 +329,7 @@ func (a *app) flush(ctx context.Context, rs *runState) {
 	var links []sheets.Link // Title cells, linked to the listing
 	var recs []store.Record
 	for _, l := range batch {
-		if l.Verdict != listing.Reject {
+		if l.Verdict == listing.Match || l.Verdict == listing.Review {
 			rows = append(rows, orderRow(rs.header, sheetRow(l)))
 			links = append(links, sheets.Link{Text: l.DisplayTitle(), URL: l.URL})
 		}

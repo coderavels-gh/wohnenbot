@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -55,6 +56,8 @@ type Store interface {
 	Known(key string) bool
 	// Data returns the stored listing data of a recorded listing ("" if none).
 	Data(ctx context.Context, key string) string
+	// Deferred lists the keys whose latest record is DEFERRED.
+	Deferred() []string
 }
 
 // ---- local JSON file -------------------------------------------------------
@@ -130,6 +133,19 @@ func needsRecheck(recs map[string]Record, source, criteria string) bool {
 		}
 	}
 	return false
+}
+
+func (f *File) Deferred() []string { f.mu.Lock(); defer f.mu.Unlock(); return deferredKeys(f.recs) }
+
+func deferredKeys(recs map[string]Record) []string {
+	var out []string
+	for k, r := range recs {
+		if r.Verdict == "DEFERRED" {
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func hasSource(recs map[string]Record, source string) bool {
@@ -271,6 +287,8 @@ func (s *Sheet) NeedsRecheck(source string) bool {
 	defer s.mu.Unlock()
 	return needsRecheck(s.recs, source, s.Criteria)
 }
+
+func (s *Sheet) Deferred() []string { s.mu.Lock(); defer s.mu.Unlock(); return deferredKeys(s.recs) }
 
 func (s *Sheet) HasSource(source string) bool {
 	s.mu.Lock()
