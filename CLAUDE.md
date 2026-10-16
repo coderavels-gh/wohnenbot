@@ -78,8 +78,14 @@ alerts. See `aptbot/README.md` for how it works.
   them anyway (personal use). Keep it minimal: newest-first, stop paging when a
   page has nothing unseen or recent, prefilter on the search data, fetch
   `/expose/` pages (allowed) only for promising flats, 3 s gap.
-- OpenStreetMap lookups are cached in `data/transit-cache.json` (and carried
-  between Actions runs with `actions/cache`).
+- **Transit uses a local stop list**, `aptbot/internal/analyze/hamburg_stops.json.gz`
+  (embedded; ~7,700 bus/U/S/ferry stops from OpenStreetMap, ODbL). No live
+  Overpass lookups inside Hamburg. Refresh it every few months with the
+  "refresh stops" workflow (runs on GitHub: overpass-api.de doesn't answer the
+  user's home IP since an Oct 13 burst of retries). Overpass stays only as a
+  fallback outside the list's area, with persisted server cooldowns.
+- Address geocoding (Nominatim) and any Overpass fallback are cached in
+  `data/transit-cache.json` (carried between Actions runs with `actions/cache`).
 - Test against the live sites sparingly; prefer fixtures in
   `internal/sources/testdata/`.
 
