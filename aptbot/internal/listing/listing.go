@@ -82,7 +82,11 @@ type Listing struct {
 	PlusOnly    bool // ImmoScout: only Plus members can contact the landlord
 	// Partial: built from an index card only (no detail page, no text). It
 	// was rejected on the card's facts; re-checking it needs a fetch.
-	Partial     bool
+	Partial bool
+	// Deferred: the flat has an exact location but OpenStreetMap was down,
+	// so its transit couldn't be checked. It is not recorded this run and is
+	// evaluated again next run, instead of landing in REVIEW on a guess.
+	Deferred    bool
 	Text        string // main detail text used for keyword analysis
 	TransitText string // dedicated "Lage"/transport text, if the source has one
 

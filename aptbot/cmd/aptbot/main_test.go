@@ -157,3 +157,34 @@ func (p *probeSource) Fetch(ctx context.Context, seen func(string) bool, emit fu
 	}
 	return nil
 }
+
+// transitDown makes every exact-location transit check fail like an OSM outage.
+func TestDeferredWhenOSMDown(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "seen.json")
+	src := &deferSource{}
+	cr := config.Criteria{MinTransitModes: 2, CommuteHbf: true, RailRadiusM: 1000, BusRadiusM: 1000}
+	a := &app{cfg: &config.Config{}, store: &store.File{Path: path, Criteria: "c"}, sources: []sources.Source{src},
+		eval: &analyze.Evaluator{Criteria: cr, Transit: analyze.NewDownTransitChecker()}, notify: notify.NewDispatcher(config.NotifyConfig{}),
+		noAlert: true, loc: time.UTC}
+	if err := a.run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st := &store.File{Path: path}
+	st.Load(ctx)
+	if st.Known("Fake:exact") {
+		t.Error("flat with exact location recorded although OSM was down")
+	}
+	if !st.Known("Fake:vague") {
+		t.Error("flat without exact location should be judged from its text and recorded")
+	}
+}
+
+type deferSource struct{}
+
+func (deferSource) Name() string { return "Fake" }
+func (deferSource) Fetch(_ context.Context, seen func(string) bool, emit func(*listing.Listing)) error {
+	emit(&listing.Listing{Source: "Fake", ID: "exact", Lat: 53.57, Lon: 9.95, Text: "U-Bahn und Bus"})
+	emit(&listing.Listing{Source: "Fake", ID: "vague", Text: "U-Bahn und Bus"})
+	return nil
+}

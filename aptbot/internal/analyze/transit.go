@@ -336,6 +336,7 @@ func classifyStop(tags map[string]string) []string {
 // Check decides the transit criterion for one listing.
 func (t *TransitChecker) Check(ctx context.Context, l *listing.Listing, cr config.Criteria) listing.Check {
 	modes, where := t.modes(ctx, l, cr)
+	l.Deferred = where.osmDown
 	if cr.CommuteHbf {
 		return commuteCheck(modes, where, cr)
 	}
@@ -356,6 +357,9 @@ func (t *TransitChecker) Check(ctx context.Context, l *listing.Listing, cr confi
 type modesSource struct {
 	osm  bool   // OpenStreetMap stops around exact coordinates
 	note string // for text-based results: " (from listing text…)"
+	// osmDown: the location was exact but OpenStreetMap couldn't be reached,
+	// so the text-based result is only a stand-in.
+	osmDown bool
 }
 
 // modes finds transit near the flat: OSM stops when the location is exact,
@@ -376,6 +380,8 @@ func (t *TransitChecker) modes(ctx context.Context, l *listing.Listing, cr confi
 				return modes, modesSource{osm: true}
 			}
 			log.Printf("transit: overpass for %s: %v", l.Key(), err)
+			src := modesFromText(l.TransitText + "\n" + l.Title + "\n" + l.Text)
+			return src, modesSource{note: " (from listing text; OpenStreetMap unavailable)", osmDown: true}
 		}
 	}
 	src := l.TransitText
@@ -430,3 +436,19 @@ func commuteCheck(modes map[string]string, where modesSource, cr config.Criteria
 }
 
 func hasMode(modes map[string]string, m string) bool { _, ok := modes[m]; return ok }
+
+// NewRun forgets the previous run's outage, so a looping bot tries
+// OpenStreetMap again each run.
+func (t *TransitChecker) NewRun() {
+	t.mu.Lock()
+	t.osmDown, t.server = nil, 0
+	t.mu.Unlock()
+}
+
+// NewDownTransitChecker returns a checker whose OpenStreetMap lookups always
+// fail, for tests of the outage path.
+func NewDownTransitChecker() *TransitChecker {
+	t := NewTransitChecker(nil, "")
+	t.osmDown = fmt.Errorf("test: OpenStreetMap down")
+	return t
+}

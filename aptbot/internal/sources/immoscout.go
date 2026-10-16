@@ -356,7 +356,7 @@ func (s *ImmoScout) Fetch(ctx context.Context, seen func(string) bool, emit func
 			}
 		}
 		if s.FullScan {
-			logf(s.Name(), "full scan (first run): %d listings in search", len(items))
+			logf(s.Name(), "full scan (first run or criteria change): %d listings in search", len(items))
 		} else {
 			logf(s.Name(), "%d listings on the newest page", len(items))
 		}

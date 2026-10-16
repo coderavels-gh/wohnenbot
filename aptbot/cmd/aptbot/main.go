@@ -168,6 +168,7 @@ type runState struct {
 	counts   map[listing.Verdict]int
 	alerted  int // alerts sent this run (capped at max_per_run)
 	overflow int // alertable listings beyond the cap
+	deferred int // not recorded: transit couldn't be checked (OSM down)
 	err      error
 }
 
@@ -177,6 +178,9 @@ func (a *app) run(ctx context.Context) error {
 		return fmt.Errorf("load state: %w", err)
 	}
 	rs := &runState{now: time.Now().In(a.loc), baseline: map[string]bool{}, counts: map[listing.Verdict]int{}}
+	if a.transit != nil {
+		a.transit.NewRun()
+	}
 	if a.sheet != nil && !a.dryRun {
 		if err := a.sheet.EnsureTab(ctx, a.cfg.Sheets.ListingsTab, listingsHeader, 0, statusOptions); err != nil {
 			return fmt.Errorf("prepare sheet: %w", err)
@@ -230,8 +234,8 @@ func (a *app) run(ctx context.Context) error {
 		}
 	}
 	n := rs.counts[listing.Match] + rs.counts[listing.Review] + rs.counts[listing.Reject]
-	log.Printf("run: %d listings evaluated (new, or rejected under older criteria) → %d match, %d review, %d rejected (%s)",
-		n, rs.counts[listing.Match], rs.counts[listing.Review], rs.counts[listing.Reject], time.Since(start).Round(time.Second))
+	log.Printf("run: %d listings evaluated (new, or rejected under older criteria) → %d match, %d review, %d rejected, %d deferred (%s)",
+		n, rs.counts[listing.Match], rs.counts[listing.Review], rs.counts[listing.Reject], rs.deferred, time.Since(start).Round(time.Second))
 	return rs.err
 }
 
@@ -239,6 +243,13 @@ func (a *app) run(ctx context.Context) error {
 func (a *app) handle(ctx context.Context, rs *runState, l *listing.Listing) {
 	l.FirstSeen = rs.now
 	a.eval.Evaluate(ctx, l)
+	if l.Deferred && l.Verdict != listing.Reject {
+		// Would pass or need review, but its transit couldn't be checked:
+		// leave it unrecorded so the next run evaluates it with OSM.
+		rs.deferred++
+		log.Printf("[%s] %s: OpenStreetMap unavailable, transit not checked; deferred to the next run", l.Source, l.Key())
+		return
+	}
 	rs.counts[l.Verdict]++
 	if a.dryRun {
 		printListing(l)
