@@ -228,7 +228,8 @@ func TestWBS(t *testing.T) {
 func TestTransitCachePersists(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cache.json")
 	tc := NewTransitChecker(nil, "")
-	tc.nearby[stopsKey(53.5753, 9.9530, 1000, 1000)] = stopsResult{Modes: map[string]string{ModeBus: "Schlump"}, At: time.Now()}
+	// A point outside the local stop list (Berlin), so the cache is what answers.
+	tc.nearby[stopsKey(52.5200, 13.4050, 1000, 1000)] = stopsResult{Modes: map[string]string{ModeBus: "Alexanderplatz"}, At: time.Now()}
 	tc.nearby["old"] = stopsResult{Modes: map[string]string{ModeBus: "x"}, At: time.Now().Add(-100 * 24 * time.Hour)}
 	tc.dirty = true
 	if err := tc.SaveCache(path); err != nil {
@@ -237,8 +238,8 @@ func TestTransitCachePersists(t *testing.T) {
 	tc2 := NewTransitChecker(nil, "") // nil client: a cache miss would panic
 	tc2.LoadCache(path)
 	// A point ~30 m away shares the entry; no network request is made.
-	modes, err := tc2.stopsNear(context.Background(), 53.5755, 9.9532, 1000, 1000)
-	if err != nil || modes[ModeBus] != "Schlump" {
+	modes, err := tc2.stopsNear(context.Background(), 52.5202, 13.4052, 1000, 1000)
+	if err != nil || modes[ModeBus] != "Alexanderplatz" {
 		t.Fatalf("modes=%v err=%v", modes, err)
 	}
 	if _, ok := tc2.nearby["old"]; ok {
