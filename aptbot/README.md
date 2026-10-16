@@ -47,6 +47,8 @@ Every cell in the sheet shows the text the decision was based on, for example `�
 
 The bot creates two tabs itself. **Listings** has a **Status** dropdown (New / Interested / Contacted / Viewing / Applied / Not interested / Gone) and a free **Notes** column. **Seen** is the bot's memory of which listings it has already processed. The bot only ever appends rows, so your edits are never overwritten. Each listing's **Title** links to the listing itself.
 
+New finds are always on top: after adding rows the bot sorts Listings by **First seen**, newest first (whole rows move, so your Status and Notes stay with their flat).
+
 You can restyle, reorder or add columns in **Listings** freely. The bot reads the header row and writes each value under the column with that name, leaves every other column untouched (for example a formula column such as €/m²), and fills the existing empty rows, so your formatting, banding and conditional colours carry over. If you rename or delete one of its columns, the bot logs which column it can't find. In the Google Sheets app on your iPhone, adding a filter view on Status makes it easy to triage.
 
 ### 2. WhatsApp via CallMeBot (each of you does this once)

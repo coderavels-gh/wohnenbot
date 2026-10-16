@@ -94,8 +94,13 @@ func main() {
 	client.HostDelay["api.mobile.immobilienscout24.de"] = 3 * time.Second
 	// Overpass rations queries per IP; space them out (it answered 429 after
 	// bursts of test runs).
-	client.HostDelay["overpass-api.de"] = 5 * time.Second
-	client.HostDelay["overpass.private.coffee"] = 5 * time.Second
+	// A healthy query takes 1–5 s; when a server is overloaded, move on to the
+	// next one quickly instead of waiting 40 s × 3 tries.
+	for _, h := range []string{"overpass-api.de", "overpass.private.coffee"} {
+		client.HostDelay[h] = 5 * time.Second
+		client.HostTimeout[h] = 20 * time.Second
+		client.HostAttempts[h] = 1
+	}
 	want := func(name string) bool {
 		return *only == "" || strings.Contains(strings.ToLower(*only), name)
 	}
@@ -279,6 +284,9 @@ func (a *app) flush(ctx context.Context, rs *runState) {
 				log.Printf("tracker: linking titles: %v", err) // rows are written; only the links are missing
 			}
 		}
+		if err := a.sortTracker(ctx, rs.header); err != nil {
+			log.Printf("tracker: sorting: %v", err) // rows are written, just not re-ordered
+		}
 	}
 	if err := a.store.Add(ctx, recs); err != nil {
 		rs.err = fmt.Errorf("save state: %w", err)
@@ -454,6 +462,21 @@ func sheetRow(l *listing.Listing) map[string]any {
 		"Anmeldung": cell(l, listing.CritAnmeldung), "Needs checking": unknowns(l),
 		"Source": l.Source, "First seen": l.FirstSeen.Format("2006-01-02 15:04"), "Key": l.Key(),
 	}
+}
+
+// sortTracker puts the newest finds on top: First seen descending, MATCH
+// before REVIEW within the same run. Whole rows move, so the user's Status and
+// Notes stay with their flat.
+func (a *app) sortTracker(ctx context.Context, header []string) error {
+	seen, verdict := columnIndex(header, "First seen"), columnIndex(header, "Verdict")
+	if seen < 0 {
+		return fmt.Errorf("no %q column", "First seen")
+	}
+	specs := []sheets.SortSpec{{Col: seen, Desc: true}}
+	if verdict >= 0 {
+		specs = append(specs, sheets.SortSpec{Col: verdict}) // "MATCH" < "REVIEW"
+	}
+	return a.sheet.SortRows(ctx, a.cfg.Sheets.ListingsTab, specs)
 }
 
 // seenCells: the readable columns of the Seen tab, the same values as in

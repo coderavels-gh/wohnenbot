@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -63,5 +64,25 @@ func TestRawDeflateBody(t *testing.T) {
 	body, err := NewClient(time.Millisecond).Get(context.Background(), srv.URL, nil)
 	if err != nil || string(body) != `{"total":102}` {
 		t.Fatalf("body=%q err=%v", body, err)
+	}
+}
+
+func TestHostTimeoutAndAttempts(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		time.Sleep(2 * time.Second)
+	}))
+	defer srv.Close()
+	c := NewClient(time.Millisecond)
+	host := strings.TrimPrefix(srv.URL, "http://")
+	c.HostTimeout[host] = 200 * time.Millisecond
+	c.HostAttempts[host] = 1
+	start := time.Now()
+	if _, err := c.Get(context.Background(), srv.URL, nil); err == nil {
+		t.Fatal("expected a timeout")
+	}
+	if d := time.Since(start); d > time.Second || hits.Load() != 1 {
+		t.Fatalf("took %s with %d tries; want one try cut at 200ms", d, hits.Load())
 	}
 }

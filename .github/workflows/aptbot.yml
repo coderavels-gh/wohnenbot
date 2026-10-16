@@ -1,4 +1,8 @@
-# Free cloud runner (GitHub Actions). State lives in the Google Sheet, so runs
+# Free cloud runner (GitHub Actions). GitHub's schedule below often skips
+# runs, so an external cron-job.org job starts this workflow every hour via the
+# workflow_dispatch API (fine-grained token, Actions read/write, this repo only;
+# expires 2027-01-12). The schedule stays as a backup.
+# State lives in the Google Sheet, so runs
 # need no storage of their own; only the OpenStreetMap lookup cache is carried
 # between runs (actions/cache), and losing it is harmless.
 #

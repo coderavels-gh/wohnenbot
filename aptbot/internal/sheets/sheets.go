@@ -428,3 +428,49 @@ func (c *Client) AddHeaderColumns(ctx context.Context, tab string, want []string
 	}
 	return header, nil
 }
+
+// SortSpec orders rows by one column (0-based), descending or ascending.
+type SortSpec struct {
+	Col  int
+	Desc bool
+}
+
+// SortRows sorts every row below the header by the given columns. Whole rows
+// move together (values, formats, links, dropdowns); empty rows stay last.
+func (c *Client) SortRows(ctx context.Context, tab string, specs []SortSpec) error {
+	var meta struct {
+		Sheets []struct {
+			Properties struct {
+				SheetID        int    `json:"sheetId"`
+				Title          string `json:"title"`
+				GridProperties struct {
+					RowCount    int `json:"rowCount"`
+					ColumnCount int `json:"columnCount"`
+				} `json:"gridProperties"`
+			} `json:"properties"`
+		} `json:"sheets"`
+	}
+	if err := c.call(ctx, "GET", "?fields=sheets.properties(sheetId,title,gridProperties)", nil, &meta); err != nil {
+		return err
+	}
+	for _, s := range meta.Sheets {
+		p := s.Properties
+		if p.Title != tab {
+			continue
+		}
+		var ss []any
+		for _, sp := range specs {
+			order := "ASCENDING"
+			if sp.Desc {
+				order = "DESCENDING"
+			}
+			ss = append(ss, map[string]any{"dimensionIndex": sp.Col, "sortOrder": order})
+		}
+		return c.call(ctx, "POST", ":batchUpdate", map[string]any{"requests": []any{map[string]any{"sortRange": map[string]any{
+			"range": map[string]any{"sheetId": p.SheetID, "startRowIndex": 1, "endRowIndex": p.GridProperties.RowCount,
+				"startColumnIndex": 0, "endColumnIndex": p.GridProperties.ColumnCount},
+			"sortSpecs": ss,
+		}}}}, nil)
+	}
+	return fmt.Errorf("no tab %q", tab)
+}

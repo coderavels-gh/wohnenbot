@@ -26,6 +26,10 @@ type Client struct {
 	delay time.Duration
 	// HostDelay overrides the gap for specific hosts.
 	HostDelay map[string]time.Duration
+	// HostTimeout and HostAttempts override the per-request timeout (40 s)
+	// and the number of tries (3) for specific hosts.
+	HostTimeout  map[string]time.Duration
+	HostAttempts map[string]int
 
 	mu      sync.Mutex
 	last    map[string]time.Time
@@ -34,11 +38,13 @@ type Client struct {
 
 func NewClient(delay time.Duration) *Client {
 	return &Client{
-		http:      &http.Client{Timeout: 40 * time.Second},
-		delay:     delay,
-		HostDelay: map[string]time.Duration{},
-		last:      map[string]time.Time{},
-		blocked:   map[string]error{},
+		http:         &http.Client{Timeout: 40 * time.Second},
+		delay:        delay,
+		HostDelay:    map[string]time.Duration{},
+		HostTimeout:  map[string]time.Duration{},
+		HostAttempts: map[string]int{},
+		last:         map[string]time.Time{},
+		blocked:      map[string]error{},
 	}
 }
 
@@ -125,9 +131,17 @@ func (c *Client) Do(ctx context.Context, method, rawURL string, body []byte, hea
 	if berr != nil {
 		return nil, fmt.Errorf("skipped, %s refused an earlier request this run: %w", u.Host, berr)
 	}
+	attempts := 3
+	if n, ok := c.HostAttempts[u.Host]; ok && n > 0 {
+		attempts = n
+	}
+	timeout := c.http.Timeout
+	if d, ok := c.HostTimeout[u.Host]; ok && d > 0 {
+		timeout = d
+	}
 	var lastErr error
 	var wait time.Duration
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 0; attempt < attempts; attempt++ {
 		if attempt > 0 {
 			if wait == 0 {
 				wait = time.Duration(attempt*attempt) * 5 * time.Second
@@ -146,8 +160,10 @@ func (c *Client) Do(ctx context.Context, method, rawURL string, body []byte, hea
 		if body != nil {
 			rd = bytes.NewReader(body)
 		}
-		req, err := http.NewRequestWithContext(ctx, method, rawURL, rd)
+		rctx, cancel := context.WithTimeout(ctx, timeout)
+		req, err := http.NewRequestWithContext(rctx, method, rawURL, rd)
 		if err != nil {
+			cancel()
 			return nil, err
 		}
 		req.Header.Set("User-Agent", BrowserUA)
@@ -158,11 +174,13 @@ func (c *Client) Do(ctx context.Context, method, rawURL string, body []byte, hea
 		}
 		resp, err := c.http.Do(req)
 		if err != nil {
+			cancel()
 			lastErr = err
 			continue
 		}
 		data, err := io.ReadAll(io.LimitReader(resp.Body, 20<<20))
 		resp.Body.Close()
+		cancel()
 		if err == nil && strings.EqualFold(resp.Header.Get("Content-Encoding"), "deflate") {
 			data, err = inflate(data)
 		}

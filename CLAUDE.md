@@ -7,7 +7,13 @@ alerts. See `aptbot/README.md` for how it works.
 
 ## Where it runs
 
-- **GitHub Actions, hourly** (`.github/workflows/aptbot.yml`, cron `7 * * * *`).
+- **GitHub Actions, hourly** (`.github/workflows/aptbot.yml`). GitHub's own
+  schedule (cron `7 * * * *`) drops most runs, so the real trigger is an
+  external job on **cron-job.org** (the user's account, "aptbot hourly", minute
+  :05) that POSTs to the `workflow_dispatch` API with a fine-grained token
+  (this repo only, Actions read/write). **That token expires 2027-01-12**;
+  after that, cron-job.org reports failed executions and the user must create
+  a new token and paste it into the job. The GitHub schedule stays as backup.
   The run reads its config from repo secrets, not from the checkout:
   - `APTBOT_CONFIG`: the whole `aptbot/config.json`
   - `GOOGLE_SA_JSON`: `aptbot/secrets/service-account.json`
@@ -27,6 +33,10 @@ alerts. See `aptbot/README.md` for how it works.
   (`orderRow`), sends `nil` for columns it doesn't own, and appends with
   `OVERWRITE` into the pre-formatted rows. The Title cell carries the link;
   there is no Link column.
+- After adding rows the bot sorts `Listings` (whole rows) by `First seen`,
+  newest first, then MATCH before REVIEW (`sortTracker`), so new finds are on
+  top. That is a data sort, not a formatting change; the user's Status and
+  Notes move with their rows.
 - A new bot column means the user adds it to `ORDER`/`WIDTHS` in their script:
   tell them.
 - `Seen` is the bot's memory: header-driven too, one row per evaluation (last
