@@ -7,20 +7,27 @@ alerts. See `aptbot/README.md` for how it works.
 
 ## Where it runs
 
-- **GitHub Actions, hourly** (`.github/workflows/aptbot.yml`). GitHub's own
-  schedule (cron `7 * * * *`) drops most runs, so the real trigger is an
-  external job on **cron-job.org** (the user's account, "aptbot hourly", minute
-  :05) that POSTs to the `workflow_dispatch` API with a fine-grained token
-  (this repo only, Actions read/write). **That token expires 2027-01-12**;
-  after that, cron-job.org reports failed executions and the user must create
-  a new token and paste it into the job. The GitHub schedule stays as backup.
+- **GitHub Actions, hourly** (`.github/workflows/aptbot.yml`), started only by
+  an external job on **cron-job.org** (the user's account, "aptbot hourly")
+  that POSTs to the `workflow_dispatch` API with a fine-grained token (this
+  repo only, Actions read/write). There is no GitHub schedule (it dropped most
+  runs and extra runs cost minutes). **The token expires 2027-01-12**; after
+  that, cron-job.org reports failed executions and the user must create a new
+  token and paste it into the job.
+- **Minutes budget:** private repo, 2,000 free minutes/month, each run rounded
+  up to a whole minute. Keep a run under 60 s: the compiled bot is cached
+  (rebuilt only when Go code changes), so a normal run is ~40 s = 1 minute,
+  ~750 minutes/month. Don't add steps or GitHub schedules without checking this.
   The run reads its config from repo secrets, not from the checkout:
   - `APTBOT_CONFIG`: the whole `aptbot/config.json`
   - `GOOGLE_SA_JSON`: `aptbot/secrets/service-account.json`
 - `aptbot/config.json` and `aptbot/secrets/` are gitignored. **After any change
   to `config.json` (criteria, sources, notify), update the secret**, or the
   cloud keeps running the old config:
-  `gh secret set APTBOT_CONFIG -R coderavels-gh/wohnenbot < aptbot/config.json`
+  `python3 -c "import json;print(json.dumps(json.load(open('aptbot/config.json')),ensure_ascii=False,separators=(',',':')))" | gh secret set APTBOT_CONFIG -R coderavels-gh/wohnenbot`
+  Store secrets as **single-line** JSON: GitHub masks every line of a
+  multi-line secret in the logs, so a pretty-printed config turns every `{`
+  and `}` in error messages into `***`.
 - A manual run with "Only send a test notification" checks ntfy from the cloud.
 - State (which listings were seen, with their extracted data) lives in the
   Google Sheet's `Seen` tab, so any runner (cloud, Mac, Docker) shares it.

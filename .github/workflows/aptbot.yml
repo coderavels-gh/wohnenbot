@@ -1,7 +1,11 @@
-# Free cloud runner (GitHub Actions). GitHub's schedule below often skips
-# runs, so an external cron-job.org job starts this workflow every hour via the
-# workflow_dispatch API (fine-grained token, Actions read/write, this repo only;
-# expires 2027-01-12). The schedule stays as a backup.
+# Free cloud runner (GitHub Actions), started every hour by an external
+# cron-job.org job through the workflow_dispatch API (fine-grained token,
+# Actions read/write, this repo only; expires 2027-01-12). There is no GitHub
+# schedule: it dropped most runs, and each extra run costs billed minutes.
+#
+# Billing rounds every run up to a whole minute (2,000 free minutes a month on
+# a private repo). To stay under one minute, the compiled bot is cached and Go
+# is only installed and the bot rebuilt when its code changed.
 # State lives in the Google Sheet, so runs
 # need no storage of their own; only the OpenStreetMap lookup cache is carried
 # between runs (actions/cache), and losing it is harmless.
@@ -16,8 +20,6 @@
 # sites still work.
 name: aptbot
 on:
-  schedule:
-    - cron: "7 * * * *" # hourly (2,000 free minutes/month on a private repo); GitHub may start runs late
   workflow_dispatch:
     inputs:
       test_alert:
@@ -49,8 +51,24 @@ jobs:
       - if: steps.secrets.outputs.ok == 'true'
         uses: actions/checkout@v4
       - if: steps.secrets.outputs.ok == 'true'
+        name: Restore compiled bot
+        id: bin
+        uses: actions/cache/restore@v4
+        with:
+          path: aptbot/aptbot
+          key: aptbot-bin-${{ runner.os }}-${{ hashFiles('aptbot/go.mod', 'aptbot/**/*.go') }}
+      - if: steps.secrets.outputs.ok == 'true' && steps.bin.outputs.cache-hit != 'true'
         uses: actions/setup-go@v5
         with: { go-version-file: aptbot/go.mod, cache: false }
+      - if: steps.secrets.outputs.ok == 'true' && steps.bin.outputs.cache-hit != 'true'
+        name: Build
+        run: go build -trimpath -o aptbot ./cmd/aptbot
+      - if: steps.secrets.outputs.ok == 'true' && steps.bin.outputs.cache-hit != 'true'
+        name: Save compiled bot
+        uses: actions/cache/save@v4
+        with:
+          path: aptbot/aptbot
+          key: aptbot-bin-${{ runner.os }}-${{ hashFiles('aptbot/go.mod', 'aptbot/**/*.go') }}
       - if: steps.secrets.outputs.ok == 'true'
         name: Restore OpenStreetMap cache
         uses: actions/cache/restore@v4
@@ -70,7 +88,6 @@ jobs:
       - if: steps.secrets.outputs.ok == 'true'
         name: Run
         run: |
-          go build -o aptbot ./cmd/aptbot
           if [ "${{ inputs.test_alert }}" = "true" ]; then
             ./aptbot -test-alert -config config.json
           else
