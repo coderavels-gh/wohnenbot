@@ -215,9 +215,13 @@ func (c *Config) applyDefaults() {
 	}
 	iw := &c.Sources.Immowelt
 	if len(iw.SearchURLs) == 0 {
-		// Hamburg, apartments to rent, ≤ 1800 €, ≥ 2 rooms, ≥ 50 m², no flat
-		// swaps or shared flats.
-		iw.SearchURLs = []string{"https://www.immowelt.de/classified-search?distributionTypes=Rent&estateTypes=Apartment&locations=AD08DE1113&priceMax=1800&numberOfRoomsMin=2&spaceMin=50&projectTypes=Stock,New_Build"}
+		// Hamburg, apartments to rent, up to the highest rent worth a look,
+		// ≥ 2 rooms, ≥ 50 m², no flat swaps or shared flats.
+		price := max(cr.RentLimit(true).ReviewUpTo, cr.RentLimit(false).ReviewUpTo)
+		if price == 0 {
+			price = 1800
+		}
+		iw.SearchURLs = []string{fmt.Sprintf("https://www.immowelt.de/classified-search?distributionTypes=Rent&estateTypes=Apartment&locations=AD08DE1113&priceMax=%.0f&numberOfRoomsMin=2&spaceMin=50&projectTypes=Stock,New_Build", price)}
 	}
 	if iw.MaxPages == 0 {
 		iw.MaxPages = 11

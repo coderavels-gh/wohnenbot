@@ -204,7 +204,8 @@ type deferSource struct{}
 
 func (deferSource) Name() string { return "Fake" }
 func (deferSource) Fetch(_ context.Context, seen func(string) bool, emit func(*listing.Listing)) error {
-	emit(&listing.Listing{Source: "Fake", ID: "exact", Lat: 53.57, Lon: 9.95, Text: "U-Bahn und Bus"})
+	// Berlin: outside the built-in Hamburg stop list, so OSM is needed.
+	emit(&listing.Listing{Source: "Fake", ID: "exact", Lat: 52.52, Lon: 13.40, Text: "U-Bahn und Bus"})
 	emit(&listing.Listing{Source: "Fake", ID: "vague", Text: "U-Bahn und Bus"})
 	return nil
 }
