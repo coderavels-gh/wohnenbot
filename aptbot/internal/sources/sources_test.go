@@ -29,6 +29,11 @@ func evaluator() *analyze.Evaluator {
 func read(t *testing.T, name string) string {
 	t.Helper()
 	b, err := os.ReadFile("testdata/" + name)
+	if os.IsNotExist(err) {
+		// Saved site pages are kept out of the public repo (third-party content,
+		// landlords' names); tests that need them run only where they exist.
+		t.Skipf("fixture %s not present", name)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,17 +7,23 @@ alerts. See `aptbot/README.md` for how it works.
 
 ## Where it runs
 
-- **GitHub Actions, hourly** (`.github/workflows/aptbot.yml`), started only by
-  an external job on **cron-job.org** (the user's account, "aptbot hourly")
+- **GitHub Actions, every 15 minutes** (`.github/workflows/aptbot.yml`),
+  started only by an external job on **cron-job.org** (the user's account)
   that POSTs to the `workflow_dispatch` API with a fine-grained token (this
   repo only, Actions read/write). There is no GitHub schedule (it dropped most
-  runs and extra runs cost minutes). **The token expires 2027-01-12**; after
-  that, cron-job.org reports failed executions and the user must create a new
-  token and paste it into the job.
-- **Minutes budget:** private repo, 2,000 free minutes/month, each run rounded
-  up to a whole minute. Keep a run under 60 s: the compiled bot is cached
-  (rebuilt only when Go code changes), so a normal run is ~40 s = 1 minute,
-  ~750 minutes/month. Don't add steps or GitHub schedules without checking this.
+  runs). **The token expires 2027-01-12**; after that, cron-job.org reports
+  failed executions and the user must create a new token and paste it into
+  the job. HomeCompany (16 index pages per check) only runs in the first
+  quarter of each hour; the workflow skips it otherwise.
+- **The repo is public** (unlimited free Actions minutes). So:
+  - Never commit personal data: no names, emails, phone numbers, sheet IDs,
+    ntfy topics, tokens. They live in `config.json` / repo secrets.
+  - Commit as `coderavels-gh <260004071+coderavels-gh@users.noreply.github.com>`
+    (set in this repo's local git config), never a personal or work email.
+  - Run logs are public: the workflow writes the bot's output to a file and
+    prints only a redacted summary. Keep it that way.
+  - Saved site pages (`aptbot/internal/sources/testdata/`) are gitignored:
+    third-party content with landlords' names. Tests skip without them.
   The run reads its config from repo secrets, not from the checkout:
   - `APTBOT_CONFIG`: the whole `aptbot/config.json`
   - `GOOGLE_SA_JSON`: `aptbot/secrets/service-account.json`

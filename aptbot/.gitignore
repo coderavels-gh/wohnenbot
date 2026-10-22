@@ -2,3 +2,6 @@ config.json
 secrets/
 data/
 bin/
+# Saved pages from the sites (third-party content with landlords' names):
+# kept locally for tests, never published.
+internal/sources/testdata/

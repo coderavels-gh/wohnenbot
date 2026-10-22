@@ -20,6 +20,9 @@ func TestLZDecompressVectors(t *testing.T) {
 // The real immowelt search page: the embedded blob decodes to JSON.
 func TestLZDecompressImmowelt(t *testing.T) {
 	b, err := os.ReadFile("../sources/testdata/immowelt_search.html")
+	if os.IsNotExist(err) {
+		t.Skip("fixture not present (kept out of the public repo)")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

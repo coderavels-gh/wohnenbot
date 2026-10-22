@@ -1,11 +1,12 @@
-# Free cloud runner (GitHub Actions), started every hour by an external
+# Free cloud runner (GitHub Actions), started every 15 minutes by an external
 # cron-job.org job through the workflow_dispatch API (fine-grained token,
 # Actions read/write, this repo only; expires 2027-01-12). There is no GitHub
-# schedule: it dropped most runs, and each extra run costs billed minutes.
+# schedule: it dropped most runs.
 #
-# Billing rounds every run up to a whole minute (2,000 free minutes a month on
-# a private repo). To stay under one minute, the compiled bot is cached and Go
-# is only installed and the bot rebuilt when its code changed.
+# The repo is public, so Actions minutes are free and unlimited; it also means
+# anyone can read the run logs (see the Run step, which keeps them minimal).
+# The compiled bot is cached and Go is only installed and the bot rebuilt when
+# its code changed, so a run takes well under a minute.
 # State lives in the Google Sheet, so runs
 # need no storage of their own; only the OpenStreetMap lookup cache is carried
 # between runs (actions/cache), and losing it is harmless.
@@ -88,11 +89,25 @@ jobs:
       - if: steps.secrets.outputs.ok == 'true'
         name: Run
         run: |
-          if [ "${{ inputs.test_alert }}" = "true" ]; then
-            ./aptbot -test-alert -config config.json
-          else
-            ./aptbot -once -skip immowelt -config config.json # immowelt blocks datacenter IPs; it runs on the Mac
+          # The repo is public, and so are these logs: the bot's output goes to a
+          # file, and only the summary (or, on failure, the last lines) is
+          # shown, with the sheet ID, email addresses and ntfy topic removed.
+          skip=immowelt # immowelt blocks datacenter IPs; it runs on the Mac
+          if [ "$(date -u +%M)" -ge 15 ]; then
+            skip=$skip,homecompany # 16 index pages per check: only once an hour
           fi
+          status=0
+          if [ "${{ inputs.test_alert }}" = "true" ]; then
+            ./aptbot -test-alert -config config.json > run.log 2>&1 || status=$?
+          else
+            ./aptbot -once -skip "$skip" -config config.json > run.log 2>&1 || status=$?
+          fi
+          redact() { sed -E -e 's#(spreadsheets/(d/)?|spreadsheetId=)[A-Za-z0-9_-]{20,}#\1…#g' -e 's#[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}#…@…#g' -e 's#(ntfy\.sh/)[A-Za-z0-9_-]+#\1…#g'; }
+          if [ $status -ne 0 ]; then
+            tail -n 15 run.log | cut -c1-300 | redact
+            exit $status
+          fi
+          grep -E '\] [0-9]+ (results|listings)|run:|alerted|FAILED' run.log | cut -c1-200 | redact || true
       - if: always() && steps.secrets.outputs.ok == 'true'
         name: Save OpenStreetMap cache
         uses: actions/cache/save@v4

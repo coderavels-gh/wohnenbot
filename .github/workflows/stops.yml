@@ -1,6 +1,6 @@
 # Refresh the bot's local stop list (every bus stop, U/S-Bahn station and
 # ferry pier in and around Hamburg, from OpenStreetMap) and commit it.
-# Runs on GitHub because overpass-api.de doesn't answer the user's home IP.
+# Runs on GitHub (Overpass is not reachable from every network).
 # Start it by hand (Actions → refresh stops → Run workflow) every few months.
 name: refresh stops
 on:
@@ -19,7 +19,12 @@ jobs:
       - uses: actions/setup-go@v5
         with: { go-version-file: aptbot/go.mod, cache: false }
       - name: Extract stops from OpenStreetMap
-        run: go run ./cmd/stops -out internal/analyze/hamburg_stops.json.gz -contact you@example.com
+        env:
+          APTBOT_CONFIG: ${{ secrets.APTBOT_CONFIG }}
+        run: |
+          # Overpass asks for a contact address; it comes from the config secret.
+          contact=$(printf '%s' "$APTBOT_CONFIG" | python3 -c "import json,sys;print(json.load(sys.stdin).get('contact_email',''))")
+          go run ./cmd/stops -out internal/analyze/hamburg_stops.json.gz -contact "$contact"
       - name: Test with the new list
         run: go test ./internal/analyze/
       - name: Commit
