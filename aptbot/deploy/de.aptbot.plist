@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  macOS LaunchAgent: runs one aptbot pass every 15 minutes while you're logged in,
+  macOS LaunchAgent: launchd starts aptbot every minute while you're logged in,
+  but a pass only runs when the time picked by the previous one has come
+  (-pace: a random 15–30 minutes later; 2 hours after a site blocked us),
   for the sources given to install-mac.sh (default: immowelt, which blocks the
   cloud runner's datacenter IPs; the other sites run on GitHub Actions).
-  If the Mac was asleep, launchd runs the missed pass right after wake.
+  If the Mac was asleep, the pass runs within a minute of waking.
   Install:  ./deploy/install-mac.sh
   Logs:     ~/Library/Logs/aptbot.log
 -->
@@ -15,13 +17,15 @@
   <array>
     <string>__DIR__/bin/aptbot</string>
     <string>-once</string>
+    <string>-pace</string>
+    <string>15m-30m</string>
     <string>-only</string>
     <string>__ONLY__</string>
     <string>-config</string>
     <string>__DIR__/config.json</string>
   </array>
   <key>WorkingDirectory</key><string>__DIR__</string>
-  <key>StartInterval</key><integer>900</integer>
+  <key>StartInterval</key><integer>60</integer>
   <key>RunAtLoad</key><true/>
   <key>ProcessType</key><string>Background</string>
   <key>StandardOutPath</key><string>__HOME__/Library/Logs/aptbot.log</string>

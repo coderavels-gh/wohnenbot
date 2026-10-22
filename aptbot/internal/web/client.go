@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -119,6 +120,18 @@ func (c *Client) wait(ctx context.Context, host string) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// BlockedHosts lists the hosts that refused requests (403/429) this run.
+func (c *Client) BlockedHosts() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []string
+	for h := range c.blocked {
+		out = append(out, h)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Do sends a request (body may be nil) and returns the response body.

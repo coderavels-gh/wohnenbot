@@ -65,7 +65,22 @@ func main() {
 	only := flag.String("only", "", "comma-separated source names to run (homecompany,citywohnen,immoscout,immowelt)")
 	fullScan := flag.Bool("full-scan", false, "read every result page this run (sources that page by recency)")
 	skip := flag.String("skip", "", "comma-separated source names not to run (e.g. immowelt in the cloud: it blocks datacenter IPs)")
+	paceFlag := flag.String("pace", "", "with -once: run only if the previous run's random 'next run' time (min-max, e.g. 15m-30m) has passed; for launchd starting the bot every minute")
+	paceFile := flag.String("pace-file", "data/pace.json", "where -pace keeps the next run time")
+	blockPause := flag.Duration("block-pause", 2*time.Hour, "with -pace: wait this long after a site refused requests (403/429)")
 	flag.Parse()
+
+	var pc *pace
+	if *paceFlag != "" {
+		lo, hi, err := parsePace(*paceFlag)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pc = &pace{path: *paceFile, min: lo, max: hi, blockPause: *blockPause}
+		if !pc.due(time.Now()) {
+			return // not yet: exit quietly, no requests and no log line
+		}
+	}
 
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
@@ -146,7 +161,17 @@ func main() {
 	}
 
 	if *once {
-		if err := a.run(ctx); err != nil {
+		err := a.run(ctx)
+		if pc != nil {
+			// Saved even after a failed run, so a broken run is not retried every minute.
+			st := pc.schedule(time.Now(), client.BlockedHosts())
+			if st.Reason != "" {
+				log.Printf("%s: pausing until %s", st.Reason, st.NextRun.In(a.loc).Format("15:04"))
+			} else {
+				log.Printf("next run at %s", st.NextRun.In(a.loc).Format("15:04"))
+			}
+		}
+		if err != nil {
 			log.Fatal(err)
 		}
 		return

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds aptbot and installs it as a LaunchAgent (runs every 15 minutes).
+# Builds aptbot and installs it as a LaunchAgent (a run every 15–30 minutes, random).
 # Usage: ./deploy/install-mac.sh                # immowelt only (default)
 #        ONLY=immowelt,immoscout ./deploy/install-mac.sh
 set -euo pipefail
