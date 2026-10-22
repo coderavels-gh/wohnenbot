@@ -267,6 +267,28 @@ func checkWBS(text string) listing.Check {
 	return c
 }
 
+// ---- Swap ------------------------------------------------------------------
+// Flat swaps (Tauschwohnung): the tenant only gives the flat up in exchange
+// for another one. Always checked; a listing that doesn't mention a swap
+// passes (never "?"). "\btausch" skips "Austausch"/"ausgetauscht".
+
+var (
+	swapNeg = rx(`\bkein(?:e|en)?\s+(?:wohnungs)?tausch`, `\b(?:wohnungs)?tausch\s+(?:ist\s+)?(?:nicht\s+möglich|ausgeschlossen)`)
+	swapReq = rx(`tauschwohnung`, `wohnungs-?tausch`, `\btausch(?:angebot|partner|objekt|gesuch|börse)`,
+		`\b(?:nur\s+)?(?:zum|im|als|per)\s+tausch\b`, `\btausch\s+(?:gegen|mit|gesucht)\b`, `\btauschen\b`, `\bnur\s+tausch\b`, `^\s*tausch\b`)
+)
+
+func checkSwap(text string) listing.Check {
+	c := listing.Check{Name: listing.CritSwap, Result: listing.Pass, Detail: "not a flat swap"}
+	if _, ok := firstMatch(text, swapNeg); ok {
+		return c
+	}
+	if ev, ok := firstMatch(text, swapReq); ok {
+		c.Result, c.Detail = listing.Fail, "flat swap (Tauschwohnung): "+ev
+	}
+	return c
+}
+
 // ---- City ------------------------------------------------------------------
 
 // "22846 Norderstedt", "20357 Hamburg–Eimsbüttel", "22045 Hamburg, Tonndorf"
@@ -443,6 +465,7 @@ func (e *Evaluator) Evaluate(ctx context.Context, l *listing.Listing) {
 		checks = append(checks, checkAnmeldung(text))
 	}
 	checks = append(checks, checkWBS(text))
+	checks = append(checks, checkSwap(text))
 	if cr.City != "" {
 		checks = append(checks, checkCity(l, cr.City))
 	}
@@ -495,6 +518,7 @@ func (e *Evaluator) QuickReject(l *listing.Listing) bool {
 	if cr.MoveInFrom != "" {
 		checks = append(checks, checkMoveIn(l, cr.MoveFrom, cr.MoveTo, now))
 	}
+	checks = append(checks, checkSwap(l.Title))
 	for _, c := range checks {
 		if c.Result == listing.Fail {
 			return true

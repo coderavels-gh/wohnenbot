@@ -225,6 +225,25 @@ func TestWBS(t *testing.T) {
 	}
 }
 
+func TestSwap(t *testing.T) {
+	cases := map[string]listing.Result{
+		"Tauschwohnung: 3 Zimmer in Eimsbüttel":                listing.Fail,
+		"Wohnungstausch – biete 2 Zi. Altona, suche 3 Zi.":     listing.Fail,
+		"Nur zum Tausch! Schöne Wohnung mit Balkon":            listing.Fail,
+		"Tausch gegen größere Wohnung in Hamburg":              listing.Fail,
+		"Wir möchten unsere Wohnung tauschen":                  listing.Fail,
+		"Tausch: 2-Zimmer-Wohnung Barmbek":                     listing.Fail,
+		"Kein Wohnungstausch":                                  listing.Pass,
+		"Die Fenster wurden 2020 ausgetauscht, Wärmetauscher":  listing.Pass,
+		"Schöne Altbauwohnung mit Balkon, Austausch der Küche": listing.Pass,
+	}
+	for text, want := range cases {
+		if got := checkSwap(text); got.Result != want {
+			t.Errorf("%q → %v want %v (%s)", text, got.Result, want, got.Detail)
+		}
+	}
+}
+
 func TestTransitCachePersists(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cache.json")
 	tc := NewTransitChecker(nil, "")

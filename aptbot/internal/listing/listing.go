@@ -47,6 +47,7 @@ const (
 	CritTransit   = "Transit"
 	CritMoveIn    = "Move-in"
 	CritWBS       = "WBS"
+	CritSwap      = "Swap"
 	CritCity      = "City"
 )
 
