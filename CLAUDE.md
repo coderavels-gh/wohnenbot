@@ -77,7 +77,7 @@ alerts. See `aptbot/README.md` for how it works.
 - **immowelt runs on the user's Mac, not in the cloud**: it answers GitHub's
   datacenter IPs with HTTP 403 (bot protection). The workflow passes
   `-skip immowelt`; the Mac LaunchAgent (`deploy/install-mac.sh`, default
-  `ONLY=immowelt`) runs `-once -only immowelt` hourly while the Mac is awake.
+  `ONLY=immowelt`) runs `-once -only immowelt` every 15 minutes while the Mac is awake.
   Both write to the same sheet.
 - **Immowelt exception:** immowelt's robots.txt disallows `classified-search?…`
   pages, the only ones that filter and sort. The user knowingly chose to read
