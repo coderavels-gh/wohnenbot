@@ -84,9 +84,10 @@ alerts. See `aptbot/README.md` for how it works.
   keep running). Both write to the same sheet.
 - **Kleinanzeigen runs in the cloud, every 2 hours**: the workflow skips it
   except in the first quarter of even UTC hours (manual input
-  `kleinanzeigen_now` forces it); the user doesn't need it fast. If the cloud
-  gets 403 there, move it back to the Mac (`ONLY=immowelt,kleinanzeigen`,
-  where `every_minutes`, default 120, spaces it out under `-pace`).
+  `kleinanzeigen_now` forces it); the user doesn't need it fast. **Never run
+  it from the user's Mac/home IP**: on Oct 27 a burst from there (tests plus a
+  10-page first scan) got their IP range blocked while they browsed the site.
+  If the cloud gets 403, ask the user (turn it off) rather than moving it.
 - **Immowelt exception:** immowelt's robots.txt disallows `classified-search?…`
   pages, the only ones that filter and sort. The user knowingly chose to read
   them anyway (personal use). Keep it minimal: newest-first, stop paging when a
