@@ -228,6 +228,7 @@ func TestWBS(t *testing.T) {
 func TestSwap(t *testing.T) {
 	cases := map[string]listing.Result{
 		"Tauschwohnung: 3 Zimmer in Eimsbüttel":                listing.Fail,
+		"Wohnungsswap - 2 Zimmer, 59 m² - Isestraße":           listing.Fail,
 		"Wohnungstausch – biete 2 Zi. Altona, suche 3 Zi.":     listing.Fail,
 		"Nur zum Tausch! Schöne Wohnung mit Balkon":            listing.Fail,
 		"Tausch gegen größere Wohnung in Hamburg":              listing.Fail,

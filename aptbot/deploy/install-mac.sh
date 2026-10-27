@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds aptbot and installs it as a LaunchAgent (a run every 15–30 minutes, random).
-# Usage: ./deploy/install-mac.sh                # immowelt and kleinanzeigen (default)
+# Usage: ./deploy/install-mac.sh                # immowelt only (default)
 #        ONLY=immowelt,kleinanzeigen,immoscout ./deploy/install-mac.sh
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -14,7 +14,7 @@ go build -o bin/aptbot ./cmd/aptbot
 PLIST="$HOME/Library/LaunchAgents/de.aptbot.plist"
 mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
 sed -e "s#__DIR__#$DIR#g" -e "s#__HOME__#$HOME#g" \
-    -e "s#__ONLY__#${ONLY:-immowelt,kleinanzeigen}#g" \
+    -e "s#__ONLY__#${ONLY:-immowelt}#g" \
     deploy/de.aptbot.plist > "$PLIST"
 chmod 600 "$PLIST"
 

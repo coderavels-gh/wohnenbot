@@ -23,7 +23,8 @@ import (
 // the top), ~25 per page plus a few paid "TOP" ads. Each run reads pages while
 // they still hold unseen ads. A card shows the price (the cold rent), size,
 // rooms and postcode/district: a flat that fails on those (Prefilter) is
-// recorded from its card alone, and only the rest get their ad page fetched.
+// recorded from its card alone, and only the rest get their ad page fetched,
+// at most MaxAdsPerRun per run (5 s apart).
 //
 // Private ads are common, and so are ads that aren't flat offers at all
 // ("Wohnung gesucht", rooms in a shared flat); those are dropped from the
@@ -117,13 +118,18 @@ func (k *Kleinanzeigen) Fetch(ctx context.Context, seen func(string) bool, emit 
 		}
 	}
 
-	skipped := 0
+	skipped, fetched, later := 0, 0, 0
 	for _, card := range todo {
 		if k.Prefilter != nil && k.Prefilter(card) {
 			skipped++
 			emit(card)
 			continue
 		}
+		if k.Cfg.MaxAdsPerRun > 0 && fetched >= k.Cfg.MaxAdsPerRun {
+			later++ // not recorded: still unseen, so the next run fetches it
+			continue
+		}
+		fetched++
 		body, err := k.Client.Get(ctx, card.URL, nil)
 		if err != nil {
 			logf(k.Name(), "ad %s: %v", card.URL, err)
@@ -142,6 +148,9 @@ func (k *Kleinanzeigen) Fetch(ctx context.Context, seen func(string) bool, emit 
 	}
 	if skipped > 0 {
 		logf(k.Name(), "%d new listing(s) rejected from the search data alone (no ad request)", skipped)
+	}
+	if later > 0 {
+		logf(k.Name(), "%d ad page(s) left for the next run (at most %d per run)", later, k.Cfg.MaxAdsPerRun)
 	}
 	if len(todo) == 0 && firstErr != nil {
 		return firstErr

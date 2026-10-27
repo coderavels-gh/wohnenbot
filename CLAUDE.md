@@ -74,17 +74,19 @@ alerts. See `aptbot/README.md` for how it works.
 - Normal runs fetch only unseen listings. ImmoScout reads its newest page;
   full scans only on a source's first run or after a criteria change.
   City-Wohnen sorts by move-in date, so it reads all pages (3 requests) every run.
-- **immowelt and Kleinanzeigen run on the user's Mac, not in the cloud**:
-  immowelt answers GitHub's datacenter IPs with HTTP 403 (bot protection);
-  Kleinanzeigen is kept to the home IP (see below). The workflow passes
-  `-skip immowelt,kleinanzeigen`; the Mac LaunchAgent (`deploy/install-mac.sh`, default
-  `ONLY=immowelt,kleinanzeigen`) runs `-once -only … -pace 15m-30m` while the Mac is awake: launchd
+- **immowelt runs on the user's Mac, not in the cloud**: it answers GitHub's
+  datacenter IPs with HTTP 403 (bot protection). The workflow passes
+  `-skip immowelt`; the Mac LaunchAgent (`deploy/install-mac.sh`, default
+  `ONLY=immowelt`) runs `-once -only immowelt -pace 15m-30m` while the Mac is awake: launchd
   starts it every minute, and it only runs once the random 15–30 minute gap
   picked by the previous run has passed, kept in `data/pace.json`. A host
   that answers 403/429 is left alone for 2 hours (per host: the other sites
-  keep running). Kleinanzeigen is checked at most every 2 hours
-  (`every_minutes`, default 120); the user doesn't need it fast.
-  Both write to the same sheet.
+  keep running). Both write to the same sheet.
+- **Kleinanzeigen runs in the cloud, every 2 hours**: the workflow skips it
+  except in the first quarter of even UTC hours (manual input
+  `kleinanzeigen_now` forces it); the user doesn't need it fast. If the cloud
+  gets 403 there, move it back to the Mac (`ONLY=immowelt,kleinanzeigen`,
+  where `every_minutes`, default 120, spaces it out under `-pace`).
 - **Immowelt exception:** immowelt's robots.txt disallows `classified-search?…`
   pages, the only ones that filter and sort. The user knowingly chose to read
   them anyway (personal use). Keep it minimal: newest-first, stop paging when a
@@ -93,7 +95,7 @@ alerts. See `aptbot/README.md` for how it works.
 - **Kleinanzeigen**: robots.txt allows `/s-wohnung-mieten/…` with the size
   and room filters and `/s-anzeige/…` ad pages; it disallows `preis:`,
   `sortierung:` and radius filters, so don't add them (the bot filters rent
-  itself). 3 s gap; reads up to `max_pages` (4) newest pages, stops at a page
+  itself). 5 s gap; at most `max_ads_per_run` (15) ad pages per run; reads up to `max_pages` (3) newest pages, stops at a page
   with nothing unseen; a full scan is capped at 10 pages.
   Ads that aren't flat offers are skipped by title (`kaNotAnOffer`). Keep it
   narrow: a title mentioning a tenant ("Suchen Nachmieter") is an offer;
@@ -101,7 +103,7 @@ alerts. See `aptbot/README.md` for how it works.
   **Kleinanzeigen exception:** it refuses Go's HTTP client by its connection
   fingerprint (403 "IP-Bereich vorübergehend gesperrt") but answers curl with
   the same headers. The user knowingly chose to fetch it through the system
-  curl (`client.HostCurl`, `internal/web/curl.go`; personal use, home IP only).
+  curl (`client.HostCurl`, `internal/web/curl.go`; personal use).
   If curl gets 403 too, the normal 2-hour pause applies; don't escalate further
   without asking.
 - **Transit uses a local stop list**, `aptbot/internal/analyze/hamburg_stops.json.gz`

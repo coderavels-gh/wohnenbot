@@ -275,7 +275,8 @@ func checkWBS(text string) listing.Check {
 var (
 	swapNeg = rx(`\bkein(?:e|en)?\s+(?:wohnungs)?tausch`, `\b(?:wohnungs)?tausch\s+(?:ist\s+)?(?:nicht\s+möglich|ausgeschlossen)`)
 	swapReq = rx(`tauschwohnung`, `wohnungs-?tausch`, `\btausch(?:angebot|partner|objekt|gesuch|börse)`,
-		`\b(?:nur\s+)?(?:zum|im|als|per)\s+tausch\b`, `\btausch\s+(?:gegen|mit|gesucht)\b`, `\btauschen\b`, `\bnur\s+tausch\b`, `^\s*tausch\b`)
+		`\b(?:nur\s+)?(?:zum|im|als|per)\s+tausch\b`, `\btausch\s+(?:gegen|mit|gesucht)\b`, `\btauschen\b`, `\bnur\s+tausch\b`, `^\s*tausch\b`,
+		`wohnungs-?swap`, `\bswap\b`) // Kleinanzeigen's swap ads: "Wohnungsswap - 2 Zimmer, 59 m² …"
 )
 
 func checkSwap(text string) listing.Check {

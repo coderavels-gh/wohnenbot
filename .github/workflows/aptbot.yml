@@ -27,6 +27,10 @@ on:
         description: "Only send a test notification (checks ntfy from the cloud)"
         type: boolean
         default: false
+      kleinanzeigen_now:
+        description: "Check Kleinanzeigen in this run even outside its 2-hour slot"
+        type: boolean
+        default: false
 concurrency: aptbot
 jobs:
   scout:
@@ -92,11 +96,15 @@ jobs:
           # The repo is public, and so are these logs: the bot's output goes to a
           # file, and only the summary (or, on failure, the last lines) is
           # shown, with the sheet ID, email addresses and ntfy topic removed.
-          # immowelt blocks datacenter IPs; Kleinanzeigen is fetched with curl
-          # and kept to a home IP. Both run on the Mac.
-          skip=immowelt,kleinanzeigen
+          skip=immowelt # immowelt blocks datacenter IPs; it runs on the Mac
           if [ "$(date -u +%M)" -ge 15 ]; then
             skip=$skip,homecompany # 16 index pages per check: only once an hour
+          fi
+          # Kleinanzeigen (fetched with curl): only every 2 hours, in the first
+          # quarter of even hours; there's no rush and it should stay gentle.
+          if [ "${{ inputs.kleinanzeigen_now }}" != "true" ] &&
+             { [ $((10#$(date -u +%H) % 2)) -ne 0 ] || [ "$(date -u +%M)" -ge 15 ]; }; then
+            skip=$skip,kleinanzeigen
           fi
           status=0
           if [ "${{ inputs.test_alert }}" = "true" ]; then
