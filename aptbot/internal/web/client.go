@@ -31,22 +31,38 @@ type Client struct {
 	// and the number of tries (3) for specific hosts.
 	HostTimeout  map[string]time.Duration
 	HostAttempts map[string]int
+	// HostCurl: hosts fetched through the system curl (see curlTransport).
+	HostCurl map[string]bool
 
 	mu      sync.Mutex
 	last    map[string]time.Time
 	blocked map[string]error
+	paused  map[string]time.Time // host → until (refused us in an earlier run)
 }
 
 func NewClient(delay time.Duration) *Client {
+	curl := map[string]bool{}
 	return &Client{
-		http:         &http.Client{}, // timeouts are per request (defaultTimeout, HostTimeout)
+		// Timeouts are per request (defaultTimeout, HostTimeout).
+		http:         &http.Client{Transport: hostTransport{curl: curl, base: http.DefaultTransport}},
+		HostCurl:     curl,
 		delay:        delay,
 		HostDelay:    map[string]time.Duration{},
 		HostTimeout:  map[string]time.Duration{},
 		HostAttempts: map[string]int{},
 		last:         map[string]time.Time{},
 		blocked:      map[string]error{},
+		paused:       map[string]time.Time{},
 	}
+}
+
+// Pause keeps the client from contacting host until the given time (a site
+// that refused us in an earlier run). Unlike a block in this run, it isn't
+// reported by BlockedHosts, so the pause isn't extended.
+func (c *Client) Pause(host string, until time.Time) {
+	c.mu.Lock()
+	c.paused[host] = until
+	c.mu.Unlock()
 }
 
 // inflate decodes a "deflate" body, which servers send either zlib-wrapped or
@@ -143,7 +159,11 @@ func (c *Client) Do(ctx context.Context, method, rawURL string, body []byte, hea
 	}
 	c.mu.Lock()
 	berr := c.blocked[u.Host]
+	until := c.paused[u.Host]
 	c.mu.Unlock()
+	if time.Now().Before(until) {
+		return nil, fmt.Errorf("skipped, %s refused an earlier run: paused until %s", u.Host, until.Local().Format("15:04"))
+	}
 	if berr != nil {
 		return nil, fmt.Errorf("skipped, %s refused an earlier request this run: %w", u.Host, berr)
 	}

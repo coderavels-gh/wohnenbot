@@ -92,10 +92,11 @@ func (cr Criteria) RentLimit(furnished bool) RentLimit {
 }
 
 type Sources struct {
-	HomeCompany HomeCompanyConfig `json:"homecompany"`
-	CityWohnen  CityWohnenConfig  `json:"citywohnen"`
-	ImmoScout   ImmoScoutConfig   `json:"immoscout"`
-	Immowelt    ImmoweltConfig    `json:"immowelt"`
+	HomeCompany   HomeCompanyConfig   `json:"homecompany"`
+	CityWohnen    CityWohnenConfig    `json:"citywohnen"`
+	ImmoScout     ImmoScoutConfig     `json:"immoscout"`
+	Immowelt      ImmoweltConfig      `json:"immowelt"`
+	Kleinanzeigen KleinanzeigenConfig `json:"kleinanzeigen"`
 }
 
 type ImmoweltConfig struct {
@@ -105,6 +106,18 @@ type ImmoweltConfig struct {
 	SearchURLs []string `json:"search_urls"`
 	// Result pages read per run at most (more on a first run / criteria change).
 	MaxPages int `json:"max_pages"`
+}
+
+type KleinanzeigenConfig struct {
+	Enabled bool `json:"enabled"`
+	// /s-wohnung-mieten/… search URLs copied from the website (area, size and
+	// room filters; robots.txt disallows price filters); the bot adds the page.
+	SearchURLs []string `json:"search_urls"`
+	// Result pages read per run at most (more on a first run / criteria change).
+	MaxPages int `json:"max_pages"`
+	// With -pace (the Mac): check at most this often (default 120 minutes);
+	// the other sources keep their own pace.
+	EveryMinutes int `json:"every_minutes"`
 }
 
 type HomeCompanyConfig struct {
@@ -225,6 +238,17 @@ func (c *Config) applyDefaults() {
 	}
 	if iw.MaxPages == 0 {
 		iw.MaxPages = 11
+	}
+	ka := &c.Sources.Kleinanzeigen
+	if len(ka.SearchURLs) == 0 {
+		// Hamburg, flats to rent, with the room and size minimums.
+		ka.SearchURLs = []string{fmt.Sprintf("https://www.kleinanzeigen.de/s-wohnung-mieten/hamburg/c203l9409+wohnung_mieten.qm_d:%.2f%%2C+wohnung_mieten.zimmer_d:%.1f%%2C", cr.MinSizeM2, cr.MinRooms)}
+	}
+	if ka.MaxPages == 0 {
+		ka.MaxPages = 4
+	}
+	if ka.EveryMinutes == 0 {
+		ka.EveryMinutes = 120
 	}
 	if len(c.Sources.CityWohnen.ListURLs) == 0 {
 		c.Sources.CityWohnen.ListURLs = []string{"https://www.city-wohnen.de/moeblierte-wohnung-mieten-hamburg/"}

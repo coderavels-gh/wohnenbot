@@ -92,7 +92,9 @@ jobs:
           # The repo is public, and so are these logs: the bot's output goes to a
           # file, and only the summary (or, on failure, the last lines) is
           # shown, with the sheet ID, email addresses and ntfy topic removed.
-          skip=immowelt # immowelt blocks datacenter IPs; it runs on the Mac
+          # immowelt blocks datacenter IPs; Kleinanzeigen is fetched with curl
+          # and kept to a home IP. Both run on the Mac.
+          skip=immowelt,kleinanzeigen
           if [ "$(date -u +%M)" -ge 15 ]; then
             skip=$skip,homecompany # 16 index pages per check: only once an hour
           fi

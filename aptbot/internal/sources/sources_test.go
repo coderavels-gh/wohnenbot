@@ -312,3 +312,88 @@ func TestImmoweltExpose(t *testing.T) {
 		}
 	}
 }
+
+func TestKleinanzeigenSearch(t *testing.T) {
+	cards := ParseKleinanzeigenSearch(read(t, "kleinanzeigen_search.html"))
+	if len(cards) < 20 {
+		t.Fatalf("got %d cards, want ~27", len(cards))
+	}
+	for _, c := range cards {
+		if c.ID == "" || !strings.HasPrefix(c.URL, "https://www.kleinanzeigen.de/s-anzeige/") || c.Title == "" {
+			t.Errorf("incomplete card: %+v", c)
+		}
+		if c.SizeM2 < 50 || c.Rooms < 2 || !strings.HasSuffix(c.Address, " Hamburg") {
+			t.Errorf("card %s: size %g, rooms %g, address %q", c.ID, c.SizeM2, c.Rooms, c.Address)
+		}
+	}
+	if c := cards[2]; c.WarmRent == 0 || !c.RentLowerBound {
+		t.Errorf("card price: %+v", c)
+	}
+}
+
+func TestKleinanzeigenAd(t *testing.T) {
+	l := ParseKleinanzeigenAd(read(t, "kleinanzeigen_ad.html"))
+	if l.WarmRent != 2330 || l.RentLowerBound || l.SizeM2 != 138 || l.Rooms != 4.5 {
+		t.Errorf("rent %g (%s, lower bound %v), size %g, rooms %g", l.WarmRent, l.RentNote, l.RentLowerBound, l.SizeM2, l.Rooms)
+	}
+	if l.Address != "Ulenweg 4, 21149 Hamburg" || l.District != "Neugraben" || !l.AddressPrecise || l.Lat == 0 {
+		t.Errorf("address %q, district %q, precise %v, lat %g", l.Address, l.District, l.AddressPrecise, l.Lat)
+	}
+	if !strings.Contains(l.Text, "Ausstattung: Balkon") {
+		t.Errorf("features missing from text:\n%s", l.Text[:300])
+	}
+
+	// No street: postcode area only, no map pin. Furnished, fixed term.
+	l = ParseKleinanzeigenAd(read(t, "kleinanzeigen_ad_nostreet.html"))
+	if l.AddressPrecise || l.Lat != 0 || l.Address != "22457 Hamburg" || l.District != "Schnelsen" {
+		t.Errorf("address %q, district %q, precise %v, lat %g", l.Address, l.District, l.AddressPrecise, l.Lat)
+	}
+	if !l.Furnished || l.WarmRent != 1500 {
+		t.Errorf("furnished %v, rent %g", l.Furnished, l.WarmRent)
+	}
+	if _, ok := l.Defaults[listing.CritDuration]; ok {
+		t.Error("fixed-term flat got the open-ended lease default")
+	}
+
+	// "Heizkosten 2.470 €" (sic) is not added; "Verfügbar ab Oktober 2026".
+	l = ParseKleinanzeigenAd(read(t, "kleinanzeigen_ad_heat.html"))
+	if l.WarmRent != 2280+190 || l.AvailableFrom != "01.10.2026" {
+		t.Errorf("rent %g (%s), available %q", l.WarmRent, l.RentNote, l.AvailableFrom)
+	}
+}
+
+func TestKleinanzeigenHelpers(t *testing.T) {
+	for title, want := range map[string]bool{
+		"Wohnung gesucht **mit Finderlohn** - Suchst du einen Nachmieter?": true,
+		"Suche 2-Zimmer-Wohnung in Eimsbüttel":                             true,
+		"Zimmer zu vermieten":                                              true,
+		"WG-Zimmer in Altona":                                              true,
+		"3 Zimmer WG":                                                      false, // could be a flat for a WG: keep
+		"Nachmieter gesucht! 3 Zimmer mit Balkon":                          false,
+		"Schöne 2-Zimmer-Wohnung mit Balkon":                               false,
+		"Helle 3 Zimmer Wohnung, Mieter gesucht":                           false,
+		"Suchen Nachmieter für 3-Zimmer-Wohnung":                           false,
+		"Wir suchen neue Mieter für unsere 2 Zi. Wohnung":                  false,
+		"Suche Nachmieter: 2,5 Zimmer in Eimsbüttel":                       false,
+		"Wohnung zu vergeben – Nachmieter gesucht":                         false,
+		"2 Zimmer zu vermieten in Barmbek":                                 false,
+		"Vermiete 3 Zimmer frei ab 1.12.":                                  false,
+		"Ideal für WG: 3 Zimmer Altbau":                                    false,
+		"Suchen 3-Zimmer-Wohnung, Familie mit Kind":                        true,
+		"Junges Paar sucht eine 2 Zimmer Wohnung":                          true,
+	} {
+		if got := kaNotAnOffer(title); got != want {
+			t.Errorf("kaNotAnOffer(%q) = %v", title, got)
+		}
+	}
+	u, _ := kaPageURL("https://www.kleinanzeigen.de/s-wohnung-mieten/hamburg/c203l9409+wohnung_mieten.qm_d:50.00%2C", 3)
+	if u != "https://www.kleinanzeigen.de/s-wohnung-mieten/hamburg/seite:3/c203l9409+wohnung_mieten.qm_d:50.00%2C" {
+		t.Errorf("page URL %s", u)
+	}
+	if a, d := kaLocality("22846 Norderstedt", ""); a != "22846 Norderstedt" || d != "" {
+		t.Errorf("Norderstedt: %q %q", a, d)
+	}
+	if a := kaAvailable("Dezember 2026"); a != "01.12.2026" {
+		t.Errorf("available %q", a)
+	}
+}

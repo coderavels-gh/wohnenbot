@@ -62,7 +62,7 @@ func main() {
 	dryRun := flag.Bool("dry-run", false, "don't write to the sheet/state or send alerts; print results")
 	noAlert := flag.Bool("no-alert", false, "record listings but send no alerts (e.g. first run)")
 	testAlert := flag.Bool("test-alert", false, "send a test alert through the configured channels and exit")
-	only := flag.String("only", "", "comma-separated source names to run (homecompany,citywohnen,immoscout,immowelt)")
+	only := flag.String("only", "", "comma-separated source names to run (homecompany,citywohnen,immoscout,immowelt,kleinanzeigen)")
 	fullScan := flag.Bool("full-scan", false, "read every result page this run (sources that page by recency)")
 	skip := flag.String("skip", "", "comma-separated source names not to run (e.g. immowelt in the cloud: it blocks datacenter IPs)")
 	paceFlag := flag.String("pace", "", "with -once: run only if the previous run's random 'next run' time (min-max, e.g. 15m-30m) has passed; for launchd starting the bot every minute")
@@ -111,6 +111,17 @@ func main() {
 	// ImmoScout is the site most likely to block; give it a wider gap.
 	client.HostDelay["api.mobile.immobilienscout24.de"] = 3 * time.Second
 	client.HostDelay["www.immowelt.de"] = 3 * time.Second
+	client.HostDelay["www.kleinanzeigen.de"] = 3 * time.Second
+	// Kleinanzeigen refuses Go's HTTP client (HTTP 403, "IP-Bereich
+	// vorübergehend gesperrt") but answers curl with the same headers.
+	client.HostCurl["www.kleinanzeigen.de"] = true
+	if pc != nil {
+		// A site that refused us in an earlier run stays untouched until its
+		// pause ends; the other sites run as usual.
+		for h, until := range pc.paused(time.Now()) {
+			client.Pause(h, until)
+		}
+	}
 	// Overpass rations queries per IP; space them out (it answered 429 after
 	// bursts of test runs).
 	// A healthy query takes 1–5 s; when a server is overloaded, move on to the
@@ -139,10 +150,25 @@ func main() {
 		iw.Prefilter = func(l *listing.Listing) bool { return a.eval.QuickReject(l) }
 		a.sources = append(a.sources, iw)
 	}
+	waiting := 0 // sources not due yet (checked less often than the run pace)
+	if cfg.Sources.Kleinanzeigen.Enabled && want("kleinanzeigen") {
+		ka := &sources.Kleinanzeigen{Client: client, Cfg: cfg.Sources.Kleinanzeigen}
+		ka.Prefilter = func(l *listing.Listing) bool { return a.eval.QuickReject(l) }
+		every := time.Duration(cfg.Sources.Kleinanzeigen.EveryMinutes) * time.Minute
+		if pc != nil && !pc.sourceDue(ka.Name(), every, time.Now()) {
+			waiting++
+		} else {
+			a.sources = append(a.sources, ka)
+		}
+	}
 	if cfg.Sources.ImmoScout.Enabled && want("immoscout") {
 		a.sources = append(a.sources, &sources.ImmoScout{Client: client, Cfg: cfg.Sources.ImmoScout})
 	}
 	if len(a.sources) == 0 {
+		if waiting > 0 {
+			pc.schedule(time.Now(), nil, nil)
+			return // nothing due this time: exit quietly, like a run that isn't due
+		}
 		log.Fatal("no sources enabled")
 	}
 	a.criteria = analyze.Fingerprint(cfg.Criteria)
@@ -164,12 +190,16 @@ func main() {
 		err := a.run(ctx)
 		if pc != nil {
 			// Saved even after a failed run, so a broken run is not retried every minute.
-			st := pc.schedule(time.Now(), client.BlockedHosts())
-			if st.Reason != "" {
-				log.Printf("%s: pausing until %s", st.Reason, st.NextRun.In(a.loc).Format("15:04"))
-			} else {
-				log.Printf("next run at %s", st.NextRun.In(a.loc).Format("15:04"))
+			blocked := client.BlockedHosts()
+			var ran []string
+			for _, src := range a.sources {
+				ran = append(ran, src.Name())
 			}
+			st := pc.schedule(time.Now(), blocked, ran)
+			for _, h := range blocked {
+				log.Printf("refused by %s: leaving it alone until %s", h, st.Paused[h].In(a.loc).Format("15:04"))
+			}
+			log.Printf("next run at %s", st.NextRun.In(a.loc).Format("15:04"))
 		}
 		if err != nil {
 			log.Fatal(err)

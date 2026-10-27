@@ -38,6 +38,9 @@
       "list_url": "https://www.homecompany.de/agenturen/hamburg/wohnungen/",
       "max_pages": 25
     },
+    "kleinanzeigen": {
+      "enabled": true
+    },
     "citywohnen": {
       "enabled": true,
       "list_urls": ["https://www.city-wohnen.de/moeblierte-wohnung-mieten-hamburg/"]
