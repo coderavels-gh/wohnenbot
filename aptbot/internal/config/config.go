@@ -115,9 +115,12 @@ type KleinanzeigenConfig struct {
 	SearchURLs []string `json:"search_urls"`
 	// Result pages read per run at most (more on a first run / criteria change).
 	MaxPages int `json:"max_pages"`
-	// Ad pages fetched per run at most (default 15); the rest wait for the
-	// next run, newest first.
-	MaxAdsPerRun int `json:"max_ads_per_run"`
+	// Requests per run at most, result pages and ad pages together
+	// (default 10); unfetched ads wait for the next run, newest first.
+	MaxRequestsPerRun int `json:"max_requests_per_run"`
+	// One-off: ad URLs missed earlier, fetched with the budget left after the
+	// new listings (already seen ones cost nothing). Remove once done.
+	CatchUpAdURLs []string `json:"catchup_ad_urls"`
 	// With -pace (the Mac): check at most this often (default 120 minutes);
 	// the other sources keep their own pace.
 	EveryMinutes int `json:"every_minutes"`
@@ -250,8 +253,8 @@ func (c *Config) applyDefaults() {
 	if ka.MaxPages == 0 {
 		ka.MaxPages = 3
 	}
-	if ka.MaxAdsPerRun == 0 {
-		ka.MaxAdsPerRun = 15
+	if ka.MaxRequestsPerRun == 0 {
+		ka.MaxRequestsPerRun = 10
 	}
 	if ka.EveryMinutes == 0 {
 		ka.EveryMinutes = 120

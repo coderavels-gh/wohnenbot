@@ -95,7 +95,7 @@ alerts. See `aptbot/README.md` for how it works.
 - **Kleinanzeigen**: robots.txt allows `/s-wohnung-mieten/…` with the size
   and room filters and `/s-anzeige/…` ad pages; it disallows `preis:`,
   `sortierung:` and radius filters, so don't add them (the bot filters rent
-  itself). 5 s gap; at most `max_ads_per_run` (15) ad pages per run; reads up to `max_pages` (3) newest pages, stops at a page
+  itself). 5 s gap, no retries; at most `max_requests_per_run` (10) requests per run, pages and ads together (the user asked for at most 10 per hour); reads up to `max_pages` (3) newest pages, stops at a page
   with nothing unseen; a full scan is capped at 10 pages.
   Ads that aren't flat offers are skipped by title (`kaNotAnOffer`). Keep it
   narrow: a title mentioning a tenant ("Suchen Nachmieter") is an offer;

@@ -112,6 +112,7 @@ func main() {
 	client.HostDelay["api.mobile.immobilienscout24.de"] = 3 * time.Second
 	client.HostDelay["www.immowelt.de"] = 3 * time.Second
 	client.HostDelay["www.kleinanzeigen.de"] = 5 * time.Second
+	client.HostAttempts["www.kleinanzeigen.de"] = 1 // no retries: each request counts against the run budget
 	// Kleinanzeigen refuses Go's HTTP client (HTTP 403, "IP-Bereich
 	// vorübergehend gesperrt") but answers curl with the same headers.
 	client.HostCurl["www.kleinanzeigen.de"] = true

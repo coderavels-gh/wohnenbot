@@ -393,6 +393,9 @@ func TestKleinanzeigenHelpers(t *testing.T) {
 	if a, d := kaLocality("22846 Norderstedt", ""); a != "22846 Norderstedt" || d != "" {
 		t.Errorf("Norderstedt: %q %q", a, d)
 	}
+	if id := kaAdID("https://www.kleinanzeigen.de/s-anzeige/helle-2-zimmer-wohnung/3552995366-203-9461"); id != "3552995366" {
+		t.Errorf("ad ID %q", id)
+	}
 	if a := kaAvailable("Dezember 2026"); a != "01.12.2026" {
 		t.Errorf("available %q", a)
 	}

@@ -23,8 +23,9 @@ import (
 // the top), ~25 per page plus a few paid "TOP" ads. Each run reads pages while
 // they still hold unseen ads. A card shows the price (the cold rent), size,
 // rooms and postcode/district: a flat that fails on those (Prefilter) is
-// recorded from its card alone, and only the rest get their ad page fetched,
-// at most MaxAdsPerRun per run (5 s apart).
+// recorded from its card alone, and only the rest get their ad page fetched.
+// A run sends at most MaxRequestsPerRun requests (pages and ads, 5 s apart);
+// what doesn't fit waits for the next run.
 //
 // Private ads are common, and so are ads that aren't flat offers at all
 // ("Wohnung gesucht", rooms in a shared flat); those are dropped from the
@@ -64,18 +65,27 @@ func (k *Kleinanzeigen) Fetch(ctx context.Context, seen func(string) bool, emit 
 	if k.FullScan {
 		maxPages = kaFullPages
 	}
+	// Every request (result page or ad page) counts against the run's budget.
+	budget := k.Cfg.MaxRequestsPerRun
+	if budget <= 0 {
+		budget = 1 << 30
+	}
+	get := func(u string) ([]byte, error) {
+		budget--
+		return k.Client.Get(ctx, u, nil)
+	}
 	var todo []*listing.Listing
 	known := map[string]bool{}
 	dropped := 0
 	var firstErr error
 	for _, search := range k.Cfg.SearchURLs {
 		read := 0
-		for page := 1; page <= maxPages; page++ {
+		for page := 1; page <= maxPages && budget > 0; page++ {
 			u, err := kaPageURL(search, page)
 			if err != nil {
 				return err
 			}
-			body, err := k.Client.Get(ctx, u, nil)
+			body, err := get(u)
 			if err != nil {
 				logf(k.Name(), "search page %d: %v", page, err)
 				if page == 1 && firstErr == nil {
@@ -117,31 +127,55 @@ func (k *Kleinanzeigen) Fetch(ctx context.Context, seen func(string) bool, emit 
 			logf(k.Name(), "%d results read", read)
 		}
 	}
+	if firstErr != nil {
+		return firstErr // refused or broken: no ad requests either
+	}
 
-	skipped, fetched, later := 0, 0, 0
-	for _, card := range todo {
-		if k.Prefilter != nil && k.Prefilter(card) {
-			skipped++
-			emit(card)
-			continue
-		}
-		if k.Cfg.MaxAdsPerRun > 0 && fetched >= k.Cfg.MaxAdsPerRun {
-			later++ // not recorded: still unseen, so the next run fetches it
-			continue
-		}
-		fetched++
-		body, err := k.Client.Get(ctx, card.URL, nil)
+	skipped, later := 0, 0
+	fetchAd := func(card *listing.Listing) {
+		body, err := get(card.URL)
 		if err != nil {
 			logf(k.Name(), "ad %s: %v", card.URL, err)
-			continue
+			return
 		}
 		l := ParseKleinanzeigenAd(string(body))
+		if l.Title == "" && card.Title == "" {
+			logf(k.Name(), "ad %s: no ad on the page (deleted?)", card.URL)
+			return
+		}
 		l.ID, l.URL = card.ID, card.URL
 		if card.Title != "" {
 			l.Title = card.Title
 		}
 		mergeCard(l, card)
 		emit(l)
+	}
+	for _, card := range todo {
+		if k.Prefilter != nil && k.Prefilter(card) {
+			skipped++
+			emit(card)
+			continue
+		}
+		if budget <= 0 {
+			later++ // not recorded: still unseen, so a later run fetches it
+			continue
+		}
+		fetchAd(card)
+	}
+	// Catch-up: ads missed earlier, fetched with whatever budget is left.
+	caught, pending := 0, 0
+	for _, u := range k.Cfg.CatchUpAdURLs {
+		id := kaAdID(u)
+		if id == "" || known[id] || seen(k.Name()+":"+id) {
+			continue
+		}
+		known[id] = true
+		if budget <= 0 {
+			pending++
+			continue
+		}
+		caught++
+		fetchAd(&listing.Listing{Source: k.Name(), ID: id, URL: u})
 	}
 	if dropped > 0 {
 		logf(k.Name(), "%d ad(s) skipped: not a flat offer (wanted ads, rooms in shared flats)", dropped)
@@ -150,13 +184,18 @@ func (k *Kleinanzeigen) Fetch(ctx context.Context, seen func(string) bool, emit 
 		logf(k.Name(), "%d new listing(s) rejected from the search data alone (no ad request)", skipped)
 	}
 	if later > 0 {
-		logf(k.Name(), "%d ad page(s) left for the next run (at most %d per run)", later, k.Cfg.MaxAdsPerRun)
+		logf(k.Name(), "%d ad page(s) left for a later run (at most %d requests per run)", later, k.Cfg.MaxRequestsPerRun)
 	}
-	if len(todo) == 0 && firstErr != nil {
-		return firstErr
+	if caught > 0 || pending > 0 {
+		logf(k.Name(), "catch-up: %d missed ad(s) fetched, %d still to do", caught, pending)
 	}
 	return nil
 }
+
+var reKAAdID = regexp.MustCompile(`/s-anzeige/[^/]+/(\d+)-\d+-\d+/?$`)
+
+// kaAdID reads the ad ID from an ad URL (".../3553609595-203-9503").
+func kaAdID(u string) string { return firstSub(reKAAdID, u) }
 
 // kaNotAnOffer: titles that clearly aren't a flat on offer: "Wohnung
 // gesucht", "Suche 2-Zimmer-Wohnung", "WG-Zimmer", "Zimmer zu vermieten".
