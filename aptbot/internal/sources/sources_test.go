@@ -381,6 +381,11 @@ func TestKleinanzeigenHelpers(t *testing.T) {
 		"Ideal für WG: 3 Zimmer Altbau":                                    false,
 		"Suchen 3-Zimmer-Wohnung, Familie mit Kind":                        true,
 		"Junges Paar sucht eine 2 Zimmer Wohnung":                          true,
+		"Suche: Wohnung für unser Referendariat in Hamburg":                true,
+		"Suche – 2 Zimmer Wohnung ab Januar":                               true,
+		"Suche: Nachmieter für 2-Zimmer-Wohnung":                           false,
+		"Suche 2-3 Zimmer-Wohnung in Hamburg":                              true,
+		"Mitbewohner für 3 Zimmerwohnung in Eimsbüttel gesucht":            true,
 	} {
 		if got := kaNotAnOffer(title); got != want {
 			t.Errorf("kaNotAnOffer(%q) = %v", title, got)

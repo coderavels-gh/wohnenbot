@@ -208,14 +208,14 @@ var (
 	// The title opens with the request.
 	reKAWantedLead = regexp.MustCompile(`(?i)^\W*(?:` + kaWantedFlat + `|(?:ich\s+|wir\s+)?` + kaSearchFlat + `)`)
 	reKARoom       = regexp.MustCompile(`(?i)` +
-		`\bwg-?zimmer\b|\bzimmer\s+in\s+(?:einer\s+|unserer\s+)?(?:\d+er[- ]?)?wg\b|^\W*(?:möbliertes\s+|schönes\s+|helles\s+)?zimmer\s+(?:zu\s+vermieten|frei)\b`)
+		`\bwg-?zimmer\b|\bmitbewohner\w*\b.*\bgesucht\b|\bzimmer\s+in\s+(?:einer\s+|unserer\s+)?(?:\d+er[- ]?)?wg\b|^\W*(?:möbliertes\s+|schönes\s+|helles\s+)?zimmer\s+(?:zu\s+vermieten|frei)\b`)
 	reKATenant = regexp.MustCompile(`(?i)mieter|vermiet|zu\s+vergeben`)
 )
 
 const (
 	kaWantedFlat = `\b(?:wohnung|mietwohnung|whg\.?|bleibe|zuhause|wohnraum)\s+(?:dringend\s+|in\s+hamburg\s+)?gesucht\b`
-	kaSearchFlat = `\bsuch(?:e|en|t)\s+(?:(?:eine?n?|dringend|ab\s+sofort|bezahlbare?n?|kleine?n?|neue?n?|ruhige?n?)\s+)*` +
-		`(?:\d+(?:[.,]\d)?[- ]?(?:zi\.?|zimmer)[- ]?)?(?:wohnung|mietwohnung|whg|bleibe|zuhause|wohnraum)`
+	kaSearchFlat = `\bsuch(?:e|en|t)(?:\s*[:–-]\s*|\s+)(?:(?:eine?n?|dringend|ab\s+sofort|bezahlbare?n?|kleine?n?|neue?n?|ruhige?n?)\s+)*` +
+		`(?:\d+(?:[.,]\d)?(?:\s*[-–]\s*\d+(?:[.,]\d)?)?[- ]?(?:zi\.?|zimmer)[- ]?)?(?:wohnung|mietwohnung|whg|bleibe|zuhause|wohnraum)`
 )
 
 func kaNotAnOffer(title string) bool {
