@@ -398,3 +398,30 @@ func TestPriceTooGood(t *testing.T) {
 		}
 	}
 }
+
+func TestRoomOffer(t *testing.T) {
+	for title, want := range map[string]bool{
+		"WG Zimmer zu sofort":          true,
+		"wg zimmer für  2 Person warm": true,
+		"Großes möbliertes WG Zimmer mit Balkon und schöner Aussicht":                       true,
+		"WG-Mitbewohnerin gesucht: 15 qm Zimmer in 88 qm 2er-WG, Dachterasse":               true,
+		"19 qm großes unmöbliertes WG-Zimmer ab sofort - in Rothenburgsort":                 true,
+		"15 m2 Zimmer | Neu renoviert | Möbliert | UKE-Nähe":                                true,
+		"Zimmer in Dachgeschosswohnung":                                                     true,
+		"Möbliertes Zimmer | 15.11.–31.12.26 | 1 Min. zur TUHH":                             true,
+		"Mitbewohner für 3 Zimmerwohnung in Eimsbüttel gesucht":                             true,
+		"Zimmer in einer 3er WG":                                                            true,
+		"3 Zimmer WG":                                                                       false,
+		"3-Zimmer-WG nahe TUHH | Frisch saniert":                                            false,
+		"Zwei Zimmer in Hamburg: Wohnung mit Balkon und Einbauküche":                        false,
+		"2 Zi Wohnung nähe Hauptbahnhof (WG geeignet)":                                      false,
+		"Zimmerwohnung mit Balkon":                                                          false,
+		"Voll ausgestattete Wohnung mit über 1 Schlafzimmer und ein Gästezimmer in Hamburg": false,
+		"Moderne 3 Zimmerwohnung mit Balkon in HH-Altona // nicht WG-geeignet":              false,
+		"Barmbek-Süd: 3-Zimmer-Altbau: WG oder als Wohnbüro / Praxis/ Atelier":              false,
+	} {
+		if got := checkRoom(title).Result == listing.Fail; got != want {
+			t.Errorf("checkRoom(%q) fails = %v, want %v", title, got, want)
+		}
+	}
+}

@@ -31,6 +31,8 @@ Every cell in the sheet shows the text the decision was based on, for example `�
 
 **Too good to be true.** Scam ads lure with rent far below the market. A listing whose warm rent is under 10 €/m² (unfurnished) or 16 €/m² (furnished) goes to REVIEW instead of MATCH, with "possible scam" in Needs checking and a 🚩 line in the alert. When only the Kaltmiete is known, 3 €/m² is added for Nebenkosten. It never rejects: SAGA, cooperative flats and old leases taken over from a tenant are cheap too. Never pay or send your ID before a viewing.
 
+**Rooms in a shared flat.** A title offering a room in a WG ("WG-Zimmer", "Zimmer in 2er-WG", "Mitbewohnerin gesucht", "15 m² Zimmer | …") is rejected on every site. A whole flat for a WG ("3 Zimmer WG", "WG-geeignet") stays.
+
 **Social housing.** Flats that need a WBS (Wohnberechtigungsschein, e.g. "nur mit WBS") are always rejected.
 
 **During a scan** rows are written in batches of 10 (and at the end of each site), so matches reach the sheet and your phone while a long scan is still running.

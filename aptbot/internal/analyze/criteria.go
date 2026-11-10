@@ -290,6 +290,31 @@ func checkSwap(text string) listing.Check {
 	return c
 }
 
+// ---- Room in a shared flat ------------------------------------------------
+// A room in a WG, not a flat: "WG-Zimmer", "WG Zimmer zu sofort", "15 qm
+// Zimmer in 2er-WG", "Mitbewohnerin gesucht", "Zimmer in Dachgeschosswohnung".
+// Judged from the title only. A whole flat for a WG ("3 Zimmer WG",
+// "3-Zimmer-Wohnung, WG-geeignet") stays. Always checked; never "?".
+
+var reRoomOffer = regexp.MustCompile(`(?i)` +
+	`\bwg[- ]?zimmer\b` +
+	`|\bmitbewohner\w*\b.*\bgesucht\b|\bwg-mitbewohner` +
+	`|\bzimmer\s+in\s+(?:einer\s+|unserer\s+|der\s+)?(?:[\d.,]+\s*(?:qm|m2|m²)\s+)?(?:\d+er[- ]?)?wg\b` +
+	// The title opens with a single room: "Möbliertes Zimmer | …",
+	// "Zimmer in Dachgeschosswohnung", "15 m2 Zimmer | …". Not "3 Zimmer …".
+	`|^\W*(?:[\d.,]+\s*(?:qm|m2|m²)\s+)?(?:(?:möbliertes|unmöbliertes|schönes|helles|großes|gemütliches|ruhiges|kleines)\s+)*zimmer\b(?:\s+(?:in|im|zu|zur|frei|ab|für|mit)\b|\s*[|,–-]|\s*$)`)
+
+func checkRoom(title string) listing.Check {
+	c := listing.Check{Name: listing.CritRoom, Result: listing.Pass, Detail: "a whole flat"}
+	if loc := reRoomOffer.FindStringIndex(title); loc != nil {
+		c.Result, c.Detail = listing.Fail, "a room in a shared flat (WG): "+Snippet(title, loc[0], loc[1])
+	}
+	return c
+}
+
+// RoomOffer reports whether a title offers a room in a shared flat.
+func RoomOffer(title string) bool { return reRoomOffer.MatchString(title) }
+
 // ---- City ------------------------------------------------------------------
 
 // "22846 Norderstedt", "20357 Hamburg–Eimsbüttel", "22045 Hamburg, Tonndorf"
@@ -508,6 +533,7 @@ func (e *Evaluator) Evaluate(ctx context.Context, l *listing.Listing) {
 	}
 	checks = append(checks, checkWBS(text))
 	checks = append(checks, checkSwap(text))
+	checks = append(checks, checkRoom(l.Title))
 	if cr.City != "" {
 		checks = append(checks, checkCity(l, cr.City))
 	}
@@ -561,7 +587,7 @@ func (e *Evaluator) QuickReject(l *listing.Listing) bool {
 	if cr.MoveInFrom != "" {
 		checks = append(checks, checkMoveIn(l, cr.MoveFrom, cr.MoveTo, now))
 	}
-	checks = append(checks, checkSwap(l.Title))
+	checks = append(checks, checkSwap(l.Title), checkRoom(l.Title))
 	for _, c := range checks {
 		if c.Result == listing.Fail {
 			return true

@@ -207,9 +207,7 @@ var (
 	reKAWanted = regexp.MustCompile(`(?i)` + kaWantedFlat + `|` + kaSearchFlat)
 	// The title opens with the request.
 	reKAWantedLead = regexp.MustCompile(`(?i)^\W*(?:` + kaWantedFlat + `|(?:ich\s+|wir\s+)?` + kaSearchFlat + `)`)
-	reKARoom       = regexp.MustCompile(`(?i)` +
-		`\bwg-?zimmer\b|\bmitbewohner\w*\b.*\bgesucht\b|\bzimmer\s+in\s+(?:einer\s+|unserer\s+)?(?:\d+er[- ]?)?wg\b|^\W*(?:möbliertes\s+|schönes\s+|helles\s+)?zimmer\s+(?:zu\s+vermieten|frei)\b`)
-	reKATenant = regexp.MustCompile(`(?i)mieter|vermiet|zu\s+vergeben`)
+	reKATenant     = regexp.MustCompile(`(?i)mieter|vermiet|zu\s+vergeben`)
 )
 
 const (
@@ -219,7 +217,7 @@ const (
 )
 
 func kaNotAnOffer(title string) bool {
-	if reKARoom.MatchString(title) || reKAWantedLead.MatchString(title) {
+	if analyze.RoomOffer(title) || reKAWantedLead.MatchString(title) {
 		return true
 	}
 	return !reKATenant.MatchString(title) && reKAWanted.MatchString(title)

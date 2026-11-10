@@ -50,6 +50,7 @@ const (
 	CritSwap      = "Swap"
 	CritCity      = "City"
 	CritPrice     = "Price"
+	CritRoom      = "Room"
 )
 
 type Check struct {
