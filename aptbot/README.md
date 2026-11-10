@@ -29,6 +29,8 @@ Every cell in the sheet shows the text the decision was based on, for example `�
 | ≥ 2 modes nearby **and** Hamburg Hbf (Nord) within an hour (`min_transit_modes`, `commute_hbf_within_hour`) | At least 2 different modes among bus, U-Bahn, S-Bahn and ferry within walking distance (`bus_radius_m` / `rail_radius_m`, 1000 m ≈ 15 min walk), so there is a fallback when one is disrupted. The hour to Hbf Nord is a rule of thumb, no journey planner: a U-Bahn or S-Bahn station or a ferry pier nearby gets there (every rapid-transit station in Hamburg is at most ~40 min from Hbf). Stops come from a built-in list of every bus stop, U/S-Bahn station and ferry pier in Hamburg (from OpenStreetMap, © OpenStreetMap contributors, ODbL; refreshed with the "refresh stops" workflow) when the address is exact (✗ if fewer than 2 modes), otherwise from the listing's own location text (? if it doesn't name 2). |
 | In Hamburg (`city`) | A flat whose address names another town (e.g. "22846 Norderstedt") is rejected. |
 
+**Too good to be true.** Scam ads lure with rent far below the market. A listing whose warm rent is under 10 €/m² (unfurnished) or 16 €/m² (furnished) goes to REVIEW instead of MATCH, with "possible scam" in Needs checking and a 🚩 line in the alert. When only the Kaltmiete is known, 3 €/m² is added for Nebenkosten. It never rejects: SAGA, cooperative flats and old leases taken over from a tenant are cheap too. Never pay or send your ID before a viewing.
+
 **Social housing.** Flats that need a WBS (Wohnberechtigungsschein, e.g. "nur mit WBS") are always rejected.
 
 **During a scan** rows are written in batches of 10 (and at the end of each site), so matches reach the sheet and your phone while a long scan is still running.

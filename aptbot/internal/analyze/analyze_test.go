@@ -378,3 +378,23 @@ func TestLocalStopsNear(t *testing.T) {
 		t.Errorf("distance %v", d)
 	}
 }
+
+func TestPriceTooGood(t *testing.T) {
+	for _, c := range []struct {
+		l    listing.Listing
+		want listing.Result
+	}{
+		{listing.Listing{WarmRent: 840, SizeM2: 72, Furnished: true}, listing.Unknown},                       // furnished in Harvestehude, 11.7 €/m² warm
+		{listing.Listing{WarmRent: 680, SizeM2: 56, Furnished: true, RentLowerBound: true}, listing.Unknown}, // furnished loft, ~15.1 with extras
+		{listing.Listing{WarmRent: 800, SizeM2: 107}, listing.Unknown},                                       // 7.5 €/m² in HafenCity
+		{listing.Listing{WarmRent: 656, SizeM2: 57}, listing.Pass},                                           // 11.5 €/m², cheap but common
+		{listing.Listing{WarmRent: 1250, SizeM2: 70}, listing.Pass},                                          // 17.9 €/m² warm
+		{listing.Listing{WarmRent: 1000, SizeM2: 70, RentLowerBound: true}, listing.Pass},                    // ~17.3 with extras
+		{listing.Listing{WarmRent: 1500, SizeM2: 60, Furnished: true}, listing.Pass},                         // 25 €/m²
+		{listing.Listing{WarmRent: 900}, listing.Pass},                                                       // size unknown
+	} {
+		if got := checkPrice(&c.l); got.Result != c.want {
+			t.Errorf("%+v: %v (%s), want %v", c.l, got.Result, got.Detail, c.want)
+		}
+	}
+}

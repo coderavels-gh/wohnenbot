@@ -507,6 +507,9 @@ func alertMessage(l *listing.Listing) notify.Message {
 	if l.AvailableFrom != "" {
 		fmt.Fprintf(&b, "📅 ab %s\n", l.AvailableFrom)
 	}
+	if c, ok := l.Check(listing.CritPrice); ok && c.Result == listing.Unknown {
+		fmt.Fprintf(&b, "🚩 %s – don't pay or send ID before a viewing\n", c.Detail)
+	}
 	if u := unknowns(l); u != "" {
 		fmt.Fprintf(&b, "⚠️ unconfirmed: %s\n", u)
 	}
@@ -536,7 +539,11 @@ func shorten(s string, n int) string {
 func unknowns(l *listing.Listing) string {
 	var u []string
 	for _, c := range l.Checks {
-		if c.Result == listing.Unknown {
+		switch {
+		case c.Result != listing.Unknown:
+		case c.Name == listing.CritPrice:
+			u = append(u, c.Detail) // "possible scam: …" says more than "price"
+		default:
 			u = append(u, strings.ToLower(c.Name))
 		}
 	}

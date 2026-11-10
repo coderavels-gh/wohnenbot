@@ -311,6 +311,47 @@ func checkCity(l *listing.Listing, city string) listing.Check {
 	return c
 }
 
+// ---- Price -----------------------------------------------------------------
+// Scam ads lure with rent far below the market ("too good to be true"). A
+// suspiciously cheap flat goes to REVIEW with a warning, never to REJECT:
+// SAGA, cooperatives and old leases taken over from a tenant are cheap too.
+// Built in (not a config field) so the criteria fingerprint stays the same;
+// it only turns passes into reviews, so RulesVersion needs no bump.
+
+const (
+	// Warm rent per m² below which a Hamburg flat looks too cheap. Typical
+	// warm rents are 15-20 €/m², furnished flats more; SAGA and cooperative
+	// flats in outer districts are often 10-12 €/m², so unfurnished stays low.
+	cheapWarmM2          = 10.0
+	cheapWarmM2Furnished = 16.0
+	// Added to a cold rent per m² when only Kaltmiete is known.
+	estExtrasM2 = 3.0
+)
+
+func checkPrice(l *listing.Listing) listing.Check {
+	c := listing.Check{Name: listing.CritPrice, Result: listing.Pass}
+	if l.WarmRent <= 0 || l.SizeM2 <= 0 {
+		c.Detail = "rent or size unknown"
+		return c
+	}
+	perM2 := l.WarmRent / l.SizeM2
+	est := ""
+	if l.RentLowerBound {
+		perM2 += estExtrasM2
+		est = "~"
+	}
+	limit, kind := cheapWarmM2, "unfurnished"
+	if l.Furnished {
+		limit, kind = cheapWarmM2Furnished, "furnished"
+	}
+	c.Detail = fmt.Sprintf("%s%.1f €/m² warm", est, perM2)
+	if perM2 < limit {
+		c.Result = listing.Unknown
+		c.Detail = fmt.Sprintf("possible scam: %s%.1f €/m² warm, far below the usual (%s ≥ %g €/m²)", est, perM2, kind, limit)
+	}
+	return c
+}
+
 // ---- Rent ------------------------------------------------------------------
 
 func checkRent(l *listing.Listing, lim config.RentLimit) listing.Check {
@@ -470,6 +511,7 @@ func (e *Evaluator) Evaluate(ctx context.Context, l *listing.Listing) {
 	if cr.City != "" {
 		checks = append(checks, checkCity(l, cr.City))
 	}
+	checks = append(checks, checkPrice(l))
 	// Apply site-level knowledge where the listing text was silent.
 	for i, c := range checks {
 		if c.Result != listing.Unknown {
